@@ -973,7 +973,7 @@ if generate_button:
             
             # --- ส่วนที่เชื่อมต่อและดึงข้อมูลจาก Google Sheets ---
             # 1. สร้างการเชื่อมต่อ (Streamlit จะดึงข้อมูลจาก .streamlit/secrets.toml)
-            conn = st.connection("gsheets", type=GSheetsConnection)
+            conn = st.connection("gsheets")
 
             # 2. อ่านข้อมูลจากทุกแท็บที่จำเป็น
             # ⚠️ สำคัญ: แก้ "YOUR_SPREADSHEET_ID_HERE" เป็น ID ของ Google Sheet ของคุณ
@@ -1057,3 +1057,4 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
