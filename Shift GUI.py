@@ -32,6 +32,249 @@ class PharmacistScheduler:
         self.shift_limits = {}
         self.problem_days = set()
         
+        self.holidays = {'specific_dates': []}
+
+        self.process_dataframes(dataframes)
+        self.load_historical_scores(dataframes)
+        self._calculate_preference_multipliers()
+
+        self.night_shifts = {
+            'I100-10', 'I100-12N', 'I400-12N', 'I400-10', 'O400ER-12N', 'O400ER-10'
+        }
+        
+        for pharmacist in self.pharmacists:
+            self.pharmacists[pharmacist]['shift_counts'] = {
+                shift_type: 0 for shift_type in self.shift_types
+            }
+    
+    def process_dataframes(self, dataframes: dict):
+        pharmacists_df = dataframes.get('pharmacists')
+        shifts_df = dataframes.get('shifts')
+        departments_df = dataframes.get('departments')
+        pre_assign_df = dataframes.get('pre_assignments')
+        notes_df = dataframes.get('special_notes')
+        limits_df = dataframes.get('shift_limits')
+
+        self.pharmacists = {}
+        for _, row in pharmacists_df.iterrows():
+            name = row['Name']
+            max_hours = row.get('Max Hours', 250)
+            if pd.isna(max_hours) or max_hours == '' or max_hours is None:
+                max_hours = 250
+            else:
+                max_hours = float(max_hours)
+            self.pharmacists[name] = {
+                'night_shift_count': 0,
+                'skills': str(row['Skills']).split(','),
+                'holidays': [date for date in str(row['Holidays']).split(',') if date != '1900-01-00' and date.strip() and date != 'nan'],
+                'shift_counts': {},
+                'preferences': {f'rank{i}': row[f'Rank{i}'] for i in range(1, 9)},
+                'max_hours': max_hours
+            }
+        
+        self.shift_types = {}
+        for _, row in shifts_df.iterrows():
+            shift_code = row['Shift Code']
+            self.shift_types[shift_code] = {
+                'description': row['Description'],
+                'shift_type': row['Shift Type'],
+                'start_time': str(row['Start Time']),
+                'end_time': str(row['End Time']),
+                'hours': row['Hours'],
+                'required_skills': str(row['Required Skills']).split(','),
+                'restricted_next_shifts': str(row['Restricted Next Shifts']).split(',') if pd.notna(row['Restricted Next Shifts']) else [],
+            }
+
+        self.departments = {}
+        for _, row in departments_df.iterrows():
+            department = row['Department']
+            self.departments[department] = str(row['Shift Codes']).split(',')
+        
+        pre_assign_df['Date'] = pd.to_datetime(pre_assign_df['Date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        self.pre_assignments = {}
+        for pharmacist, group in pre_assign_df.groupby('Pharmacist'):
+            date_dict = {}
+            for date, g in group.groupby('Date'):
+                shifts = []
+                for shift_str in g['Shift']:
+                    shifts.extend([s.strip() for s in str(shift_str).split(',') if s.strip()])
+                date_dict[date] = shifts
+            self.pre_assignments[pharmacist] = date_dict
+
+        if notes_df is not None:
+            for pharmacist, row_data in notes_df.iterrows():
+                if pharmacist in self.pharmacists:
+                    for date_col, note in row_data.items():
+                        if pd.notna(note) and str(note).strip():
+                            try:
+                                date_str = pd.to_datetime(date_col).strftime('%Y-%m-%d')
+                                if pharmacist not in self.special_notes:
+                                    self.special_notes[pharmacist] = {}
+                                self.special_notes[pharmacist][date_str] = str(note).strip()
+                            except (ValueError, TypeError):
+                                continue 
+
+        if limits_df is not None:
+            for _, row in limits_df.iterrows():
+                pharmacist = row['Pharmacist']
+                category = row['ShiftCategory']
+                max_count = row['MaxCount']
+                if pharmacist in self.pharmacists:
+                    if pharmacist not in self.shift_limits:
+                        self.shift_limits[pharmacist] = {}
+                    self.shift_limits[pharmacist][category] = int(max_count)
+
+        holiday_df = dataframes.get('holiday')
+        holiday2_df = dataframes.get('holiday2')
+        holiday_dates = []
+        if holiday_df is not None and 'Date' in holiday_df.columns:
+            valid_dates = pd.to_datetime(holiday_df['Date'], errors='coerce').dropna()
+            holiday_dates.extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
+        if holiday2_df is not None and 'Date' in holiday2_df.columns:
+            valid_dates = pd.to_datetime(holiday2_df['Date'], errors='coerce').dropna()
+            holiday_dates.extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
+        self.holidays['specific_dates'] = list(set(holiday_dates))
+
+    def load_historical_scores(self, dataframes: dict):
+        df = dataframes.get('historical_scores')
+        if df is None: return
+        if 'Pharmacist' in df.columns and 'Total Preference Score' in df.columns:
+            for _, row in df.iterrows():
+                pharmacist = row['Pharmacist']
+                score = row['Total Preference Score']
+                if pharmacist in self.pharmacists:
+                    self.historical_scores[pharmacist] = score
+
+    def _pre_check_staffing_levels(self, year, month):
+        st.write("\nRunning pre-check for staffing levels...")
+        start_date = datetime(year, month, 1)
+        end_date = datetime(year, month + 1, 1) - timedelta(days=1) if month < 12 else datetime(year, 12, 31)
+        dates = pd.date_range(start_date, end_date)
+        all_ok = True
+        for date in dates:
+            available_pharmacists_count = sum(1 for p_name, p_info in self.pharmacists.items()
+                                              if date.strftime('%Y-%m-%d') not in p_info['holidays'])
+            required_shifts_base = sum(1 for st in self.shift_types
+                                       if self.is_shift_available_on_date(st, date))
+            total_required_shifts_with_buffer = required_shifts_base + 3
+            if available_pharmacists_count < total_required_shifts_with_buffer:
+                all_ok = False
+                self.problem_days.add(date)
+                st.warning(f"⚠️ **Potential shortage on {date.strftime('%Y-%m-%d')}**. "
+                           f"Available: {available_pharmacists_count}, "
+                           f"Required (with buffer): {total_required_shifts_with_buffer}")
+        if all_ok: st.success("✅ Pre-check complete. All days have sufficient staffing levels.")
+        else: st.warning("Pre-check complete. Identified days with potential shortages.")
+        return not all_ok
+
+    def _calculate_preference_multipliers(self):
+        if not self.historical_scores:
+            for pharmacist in self.pharmacists: self.preference_multipliers[pharmacist] = 1.0
+            return
+        min_score = min(self.historical_scores.values())
+        max_score = max(self.historical_scores.values())
+        if min_score == max_score:
+            for pharmacist in self.pharmacists: self.preference_multipliers[pharmacist] = 1.0
+            return
+        for pharmacist, score in self.historical_scores.items():
+            normalized_score = (score - min_score) / (max_score - min_score)
+            min_multiplier = 0.7
+            self.preference_multipliers[pharmacist] = min_multiplier + (1 - min_multiplier) * normalized_score
+        for pharmacist in self.pharmacists:
+            if pharmacist not in self.preference_multipliers:
+                self.preference_multipliers[pharmacist] = 0.7
+
+    def convert_time_to_minutes(self, time_input):
+        if isinstance(time_input, str):
+            try: hours, minutes = map(int, time_input.split(':'))
+            except ValueError: return 0
+        elif isinstance(time_input, time): hours, minutes = time_input.hour, time_input.minute
+        else: return 0
+        return hours * 60 + minutes
+
+    def check_time_overlap(self, start1, end1, start2, end2):
+        start1_mins = self.convert_time_to_minutes(start1)
+        end1_mins = self.convert_time_to_minutes(end1)
+        start2_mins = self.convert_time_to_minutes(start2)
+        end2_mins = self.convert_time_to_minutes(end2)
+        if end1_mins < start1_mins: end1_mins += 24 * 60
+        if end2_mins < start2_mins: end2_mins += 24 * 60
+        return start1_mins < end2_mins and end1_mins > start2_mins
+
+    def check_mixing_expert_ratio_optimized(self, schedule_dict, date, current_shift=None, current_pharm=None):
+        mixing_shifts = [p for s, p in schedule_dict[date].items() if s.startswith('C8') and p not in ['NO SHIFT', 'UNASSIGNED', 'UNFILLED']]
+        if current_shift and current_shift.startswith('C8') and current_pharm: mixing_shifts.append(current_pharm)
+        if not mixing_shifts: return True
+        total_mixing = len(mixing_shifts)
+        expert_count = sum(1 for pharm in mixing_shifts if pharm in self.pharmacists and 'mixing_expert' in self.pharmacists[pharm]['skills'])
+        return expert_count >= (2 * total_mixing / 3)
+
+    def count_consecutive_shifts(self, pharmacist, date, schedule, max_days=6):
+        count = 0
+        current_date = date - timedelta(days=1)
+        for _ in range(max_days):
+            if current_date in schedule.index and pharmacist in schedule.loc[current_date].values:
+                count += 1
+                current_date -= timedelta(days=1)
+            else: break
+        return count
+
+    def is_holiday(self, date): return date.strftime('%Y-%m-%d') in self.holidays['specific_dates']
+    def is_night_shift(self, shift_type): return shift_type in self.night_shifts
+    def is_shift_available_on_date(self, shift_type, date):
+        shift_info = self.shift_types[shift_type]
+        is_holiday_date = self.is_holiday(date)
+        is_saturday = date.weekday() == 5
+        is_sunday = date.weekday() == 6
+        if shift_info['shift_type'] == 'weekday': return not (is_holiday_date or is_saturday or is_sunday)
+        elif shift_info['shift_type'] == 'saturday': return is_saturday and not is_holiday_date
+        elif shift_info['shift_type'] == 'holiday': return is_holiday_date or is_saturday or is_sunday
+        elif shift_info['shift_type'] == 'night': return True
+        return False
+
+    def get_pharmacist_shifts(self, pharmacist, date, current_schedule):
+        shifts = []
+        if date in current_schedule.index:
+            for shift_type in current_schedule.columns:
+                if current_schedule.loc[date, shift_type] == pharmacist:
+                    shifts.append(shift_type)
+        return shifts
+
+    def calculate_total_hours(self, pharmacist, schedule):
+        total_hours = 0
+        for date in schedule.index:
+            for shift_type, assigned_pharm in schedule.loc[date].items():
+                if assigned_pharm == pharmacist and shift_type in self.shift_types:
+                    total_hours += self.shift_types[shift_type]['hours']
+        return total_hours
+    # ... (Other class methods like optimize_schedule, export_to_excel, etc., remain unchanged) ...
+    # To save space, I will omit the unchanged methods from the class, but they should be in your final code.
+    # The full unchanged methods are included in the final complete code block at the end.
+
+# =========================================================================
+# ================== FULL PHARMACIST SCHEDULER CLASS ======================
+# =========================================================================
+# This is the full, unmodified class from the previous step for completeness.
+class PharmacistScheduler:
+    """
+    Pharmacy shift scheduler with optimization and Excel export.
+    Designed for multi-constraint pharmacist roster planning.
+    """
+    W_CONSECUTIVE = 8
+    W_HOURS = 4
+    W_PREFERENCE = 4
+
+    def __init__(self, dataframes: dict):
+        self.pharmacists = {}
+        self.shift_types = {}
+        self.departments = {}
+        self.pre_assignments = {}
+        self.historical_scores = {}
+        self.preference_multipliers = {}
+        self.special_notes = {}
+        self.shift_limits = {}
+        self.problem_days = set()
+        
         # Holiday data from sheets
         self.holidays = {'specific_dates': []}
 
@@ -134,16 +377,13 @@ class PharmacistScheduler:
         # === Process Holidays ===
         holiday_df = dataframes.get('holiday')
         holiday2_df = dataframes.get('holiday2')
-        
         holiday_dates = []
         if holiday_df is not None and 'Date' in holiday_df.columns:
             valid_dates = pd.to_datetime(holiday_df['Date'], errors='coerce').dropna()
             holiday_dates.extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
-
         if holiday2_df is not None and 'Date' in holiday2_df.columns:
             valid_dates = pd.to_datetime(holiday2_df['Date'], errors='coerce').dropna()
             holiday_dates.extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
-        
         self.holidays['specific_dates'] = list(set(holiday_dates))
 
     def load_historical_scores(self, dataframes: dict):
@@ -166,7 +406,6 @@ class PharmacistScheduler:
         start_date = datetime(year, month, 1)
         end_date = datetime(year, month + 1, 1) - timedelta(days=1) if month < 12 else datetime(year, 12, 31)
         dates = pd.date_range(start_date, end_date)
-
         all_ok = True
         for date in dates:
             available_pharmacists_count = sum(1 for p_name, p_info in self.pharmacists.items()
@@ -174,7 +413,6 @@ class PharmacistScheduler:
             required_shifts_base = sum(1 for st in self.shift_types
                                        if self.is_shift_available_on_date(st, date))
             total_required_shifts_with_buffer = required_shifts_base + 3
-
             if available_pharmacists_count < total_required_shifts_with_buffer:
                 all_ok = False
                 self.problem_days.add(date)
@@ -186,7 +424,6 @@ class PharmacistScheduler:
         else:
             st.warning("Pre-check complete. Identified days with potential shortages. These will be prioritized.")
         return not all_ok
-
 
     def _calculate_preference_multipliers(self):
         if not self.historical_scores:
@@ -1001,14 +1238,12 @@ class PharmacistScheduler:
                     scores[pharmacist] = percentage_score
         return scores
 
-
 # =========================================================================
-# ================== STREAMLIT HELPER FUNCTION ============================
+# ================== STREAMLIT HELPER FUNCTION (REVISED) ==================
 # =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
-    Creates and styles a DataFrame in the 'Daily Summary' format for Streamlit display.
-    Displays hours instead of shift codes, but retains styling based on the original code.
+    Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
     """
     styles = scheduler._setup_daily_summary_styles()
     
@@ -1023,67 +1258,84 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
     
     active_pharmacists = [p for p in ordered_pharmacists if p in scheduler.pharmacists]
     sorted_dates = sorted(schedule_df.index)
+    date_cols = [d.strftime('%d/%m') for d in sorted_dates]
     
-    summary_data = []
+    row_types = ['Note', 'Shift 1', 'Shift 2']
+    multi_index = pd.MultiIndex.from_product([active_pharmacists, row_types], names=['Pharmacist', ''])
+    
+    # Initialize DataFrame with object dtype to hold tuples
+    summary_df = pd.DataFrame(index=multi_index, columns=date_cols, dtype=object)
+
+    # Populate the DataFrame with (display_text, style_key) tuples
     for pharmacist in active_pharmacists:
-        row_data = {"Pharmacist": pharmacist}
         for date in sorted_dates:
-            shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
-            date_str = date.strftime('%Y-%m-%d')
-            is_personal_holiday = date_str in scheduler.pharmacists[pharmacist]['holidays']
+            date_col = date.strftime('%d/%m')
+            date_str_ymd = date.strftime('%Y-%m-%d')
             
+            shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
+            note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, '')
+            is_personal_holiday = date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']
+
             if is_personal_holiday:
-                row_data[date.strftime('%d/%m')] = ('OFF', 'OFF') # (Display, Style Key)
-            elif shifts:
-                display_texts = []
-                for s in shifts:
-                    hours = int(scheduler.shift_types[s]['hours'])
-                    display_text = f"{hours}N" if scheduler.is_night_shift(s) else str(hours)
-                    display_texts.append(display_text)
-                
-                row_data[date.strftime('%d/%m')] = ("\n".join(display_texts), "\n".join(shifts))
+                summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('X', 'OFF')
             else:
-                row_data[date.strftime('%d/%m')] = ('', '') # Empty display and style key
-        summary_data.append(row_data)
-
-    summary_df = pd.DataFrame(summary_data).set_index("Pharmacist")
-
-    def apply_cell_styling(cell_tuple, date_col_str):
-        display_text, style_key = cell_tuple
-        date_obj = datetime.strptime(date_col_str, '%d/%m').replace(year=sorted_dates[0].year)
-        
-        bg_color = 'white'
-        font_color = 'black'
-        font_weight = 'normal'
-        
-        is_weekend = date_obj.weekday() >= 5
-        is_public_holiday = scheduler.is_holiday(date_obj)
-
-        if style_key == 'OFF':
-            bg_color = styles['off_fill']
-            font_weight = 'bold'
-        elif style_key: 
-            first_shift = style_key.split('\n')[0]
-            prefix = next((p for p in styles['fills'] if first_shift.startswith(p)), None)
-            if prefix:
-                bg_color = styles['fills'][prefix]
-                font_color = styles['fonts'].get(prefix, 'black')
-                font_weight = 'bold'
-        elif is_public_holiday or is_weekend:
-             bg_color = styles['holiday_empty_fill']
-
-        return f'background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;'
-
-    styler = summary_df.style
-
-    for col in summary_df.columns:
-        styler = styler.map(lambda val: apply_cell_styling(val, col), subset=[col])
-        
-    styler = styler.format(lambda val: val[0])
+                if note:
+                    summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
+                if len(shifts) >= 1:
+                    s1 = shifts[0]
+                    h1 = int(scheduler.shift_types[s1]['hours'])
+                    d1 = f"{h1}N" if scheduler.is_night_shift(s1) else str(h1)
+                    summary_df.loc[(pharmacist, 'Shift 2'), date_col] = (d1, s1)
+                if len(shifts) >= 2:
+                    s2 = shifts[1]
+                    h2 = int(scheduler.shift_types[s2]['hours'])
+                    d2 = f"{h2}N" if scheduler.is_night_shift(s2) else str(h2)
+                    summary_df.loc[(pharmacist, 'Shift 1'), date_col] = (d2, s2)
     
+    summary_df.fillna(('', ''), inplace=True) # Fill NaNs with empty tuple
+
+    # Create a second DataFrame of the same size to hold CSS styles
+    style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
+    
+    for pharmacist in active_pharmacists:
+        for i, date in enumerate(sorted_dates):
+            date_col = date_cols[i]
+            
+            # Check for personal holiday first
+            if summary_df.loc[(pharmacist, 'Shift 2'), date_col][1] == 'OFF':
+                off_style = f"background-color: {styles['off_fill']}; font-weight: bold; text-align: center;"
+                style_df.loc[(pharmacist, 'Note'), date_col] = off_style
+                style_df.loc[(pharmacist, 'Shift 1'), date_col] = off_style
+                style_df.loc[(pharmacist, 'Shift 2'), date_col] = off_style
+                continue
+
+            # Apply individual cell styling if not a personal holiday
+            for row_type in row_types:
+                display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
+                
+                bg_color = 'white'
+                font_color = 'black'
+                font_weight = 'normal'
+                is_weekend_or_holiday = date.weekday() >= 5 or scheduler.is_holiday(date)
+
+                if style_key and style_key != 'NOTE': # It's a shift
+                    prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
+                    if prefix:
+                        bg_color = styles['fills'][prefix]
+                        font_color = styles['fonts'].get(prefix, 'black')
+                        font_weight = 'bold'
+                elif not display_text and is_weekend_or_holiday: # Empty cell on special day
+                    bg_color = styles['holiday_empty_fill']
+
+                style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center;"
+
+    # Apply the styles and formatting
+    styler = summary_df.style.apply(lambda x: style_df, axis=None)
+    styler.format(lambda val: val[0] if isinstance(val, tuple) else val)
     styler.set_table_styles([
         {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold')]},
-        {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left')]},
+        {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
+        {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
         {'selector': 'td, th', 'props': 'border: 1px solid #ccc;'},
     ], overwrite=False)
 
@@ -1223,7 +1475,7 @@ if 'best_schedule' in st.session_state:
 
     with tab1:
         st.subheader("ตารางสรุปการทำงาน (Daily Summary View)")
-        st.markdown("ตารางนี้แสดงผลเป็น **ชั่วโมงการทำงาน** และลงสีตามประเภทเวรเหมือนในไฟล์ Excel")
+        st.markdown("ตารางนี้แสดงผลในรูปแบบ 3 แถวต่อคน เหมือนในไฟล์ Excel")
         
         styled_df = display_daily_summary_as_styled_df(scheduler, schedule)
         st.dataframe(styled_df, use_container_width=True, height=800)
@@ -1282,7 +1534,5 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
-
-
 
 
