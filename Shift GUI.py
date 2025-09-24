@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, time
 from openpyxl import Workbook
-from github import Github
+from github import Github, Auth 
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 import random
@@ -17,7 +17,11 @@ def load_data_from_github(file_path):
         repo_name = st.secrets["GITHUB_REPO"]
         token = st.secrets["GITHUB_TOKEN"]
         
-        g = Github(token)
+        auth = Auth.Token(token)
+
+# 3. ส่ง object นี้เข้าไปใน Github() แทน token โดยตรง
+        g = Github(auth=auth) # <-- แก้ไขเป็นวิธีใหม่
+
         repo = g.get_repo(repo_name)
         content_file = repo.get_contents(file_path)
         
@@ -1158,6 +1162,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
