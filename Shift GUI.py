@@ -1012,18 +1012,6 @@ if generate_button:
                 shift_limits_df = conn.read(spreadsheet=spreadsheet_id, worksheet="ShiftLimits")
             except Exception:
                 shift_limits_df = None
-            try:
-                holiday_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Holiday")
-            except Exception:
-                holiday_df = None
-            try:
-                holiday2_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Holiday 2")
-            except Exception:
-                holiday2_df = None
-            try:
-                prefre_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Prefre")
-            except Exception:
-                prefre_df = None
 
 
             st.success("Successfully read data from Google Sheets!")
@@ -1083,6 +1071,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
