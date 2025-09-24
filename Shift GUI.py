@@ -10,7 +10,7 @@ from statistics import stdev
 from io import BytesIO
 
 # =========================================================================
-# ================== PHARMACIST SCHEDULER CLASS (FULL) ====================
+# ================== PHARMACIST SCHEDULER CLASS (ฉบับปรับปรุง) =============
 # =========================================================================
 class PharmacistScheduler:
     """
@@ -133,7 +133,7 @@ class PharmacistScheduler:
                         self.shift_limits[pharmacist] = {}
                     self.shift_limits[pharmacist][category] = int(max_count)
 
-        # === Process Holidays ===
+        # === Process Holidays (FIXED) ===
         holiday_df = dataframes.get('holiday')
         holiday2_df = dataframes.get('holiday2')
         
@@ -146,6 +146,7 @@ class PharmacistScheduler:
             valid_dates = pd.to_datetime(holiday2_df['Date'], errors='coerce').dropna()
             holiday_dates.extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
         
+        # Use a set to get unique dates, then convert back to a list
         self.holidays['specific_dates'] = list(set(holiday_dates))
 
     def load_historical_scores(self, dataframes: dict):
@@ -587,17 +588,9 @@ class PharmacistScheduler:
         log_placeholder = st.empty()
         
         for i in range(iterations):
-            if st.session_state.get('stop_generation', False):
-                log_placeholder.warning("⏹️ Generation stopped by user.")
-                st.session_state.stop_generation = False # Reset flag
-                break
-
             iteration_placeholder.text(f"--- Running Iteration {i+1}/{iterations} ---")
             current_schedule, unfilled_info = self.generate_monthly_schedule_shuffled(year, month, iteration_num=i+1)
-            
-            if unfilled_info['other_days']:
-                continue
-
+            if unfilled_info['other_days']: continue
             metrics = self.calculate_schedule_metrics(current_schedule, year, month)
             metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days'])
             
@@ -612,10 +605,10 @@ class PharmacistScheduler:
                 best_schedule = current_schedule.copy()
                 best_metrics = metrics.copy()
                 best_unfilled_info = unfilled_info.copy()
-                log_placeholder.success(f"🏆 {log_message}\n*** Found a more balanced schedule! ***")
+                log_placeholder.success(f"{log_message}\n*** Found a more balanced schedule! ***")
 
         if best_schedule is not None:
-            st.success("✅ Optimization complete! Final metrics for the best schedule found:")
+            st.success("Optimization complete! Final metrics for the best schedule found:")
             st.json({
                 "Unfilled Shifts (Problem Days)": best_metrics.get('unfilled_problem_shifts', 0),
                 "Hour SD": f"{best_metrics.get('hour_diff_for_logging', 0):.2f}",
@@ -623,11 +616,7 @@ class PharmacistScheduler:
                 "Preference Penalty": f"{best_metrics.get('preference_score', 0):.1f}"
             })
         else:
-            st.error("❌ Optimization failed to find any valid schedule.")
-        
-        iteration_placeholder.empty()
-        log_placeholder.empty()
-        
+            st.error("Optimization failed to find any valid schedule.")
         return best_schedule, best_unfilled_info
     
     def export_to_excel(self, schedule, unfilled_info):
@@ -964,233 +953,141 @@ class PharmacistScheduler:
                     scores[pharmacist] = percentage_score
         return scores
 
-
 # =========================================================================
-# ================== NEW STYLING FUNCTION =================================
-# =========================================================================
-def display_styled_summary(schedule_df, scheduler):
-    """
-    Creates and displays a styled HTML table in Streamlit that mimics the
-    'Daily Summary' Excel sheet.
-    """
-    styles = scheduler._setup_daily_summary_styles()
-    ordered_pharmacists = [
-        "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
-        "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
-        "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)", "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)",
-        "ภญ.วรรณิดา (ม่าน)", "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)", "ภญ.ดวงดาว (ปลา)",
-        "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)",
-        "ภญ.กันต์หทัย (ซีน)","ภญ.พัทธ์ธีรา (วิว)","ภญ.จุฑามาศ (กวาง)",'ภญ. ณัฐพร (แอม)'
-    ]
-    
-    valid_pharmacists = [p for p in ordered_pharmacists if p in scheduler.pharmacists]
-    sorted_dates = sorted(schedule_df.index)
-
-    # Create the DataFrame structure for display
-    summary_data = {date.strftime('%d/%m'): [""] * len(valid_pharmacists) for date in sorted_dates}
-    summary_df = pd.DataFrame(summary_data, index=valid_pharmacists)
-
-    for pharmacist in valid_pharmacists:
-        for date in sorted_dates:
-            date_str_dmy = date.strftime('%d/%m')
-            date_str_ymd = date.strftime('%Y-%m-%d')
-            
-            shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
-            note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, "")
-            
-            display_parts = []
-            if note:
-                display_parts.append(f'<div style="font-size: 8px; font-style: italic;">{note}</div>')
-
-            if date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']:
-                 display_parts.append("OFF")
-            elif shifts:
-                for shift in shifts:
-                    display_parts.append(shift)
-            
-            summary_df.loc[pharmacist, date_str_dmy] = "<br>".join(display_parts)
-    
-    # --- Styling Logic ---
-    color_map = {key: value.start_color for key, value in styles['fills'].items()}
-
-    def apply_cell_styles(val):
-        # Default styles
-        style = 'color: black; font-weight: bold; font-size: 10px; text-align: center; vertical-align: middle; padding: 5px;'
-        
-        if "OFF" in val:
-            return style + f"background-color: #{styles['off_fill'].start_color};"
-        
-        # Find the first matching shift prefix for background color
-        bg_color_found = None
-        for prefix, color_hex in color_map.items():
-            if prefix in val:
-                bg_color_found = f"background-color: #{color_hex};"
-                # Special font colors
-                if prefix in ['O400F1', 'ARI']:
-                    style += ' color: white;'
-                break # Use the first color found
-        
-        if bg_color_found:
-            return style + bg_color_found
-            
-        return style # Return default style if no shift found
-
-    styler = summary_df.style.map(apply_cell_styles)
-    
-    # Style headers based on holiday/weekend
-    header_styles = {}
-    for date in sorted_dates:
-        col_name = date.strftime('%d/%m')
-        if scheduler.is_holiday(date):
-            header_styles[col_name] = [{'selector': 'th', 'props': [('background-color', f'#{styles["holiday_fill"].start_color}')]}]
-        elif date.weekday() >= 5: # Weekend
-            header_styles[col_name] = [{'selector': 'th', 'props': [('background-color', f'#{styles["weekend_fill"].start_color}')]}]
-
-    styler.set_table_styles(header_styles, overwrite=False)
-    styler.set_table_styles([
-        {'selector': 'th.row_heading', 'props': [('background-color', '#D3D3D3'), ('font-weight', 'bold'), ('text-align', 'left'), ('padding-left', '10px')]},
-        {'selector': 'td, th', 'props': [('border', '1px solid #CCCCCC')]}
-    ], overwrite=False)
-
-    st.html(styler.to_html(escape=False))
-
-
-# =========================================================================
-# ================== STREAMLIT APPLICATION UI (IMPROVED) ==================
+# ================== STREAMLIT APPLICATION UI =============================
 # =========================================================================
 
-st.set_page_config(page_title="Pharmacist Scheduler Pro", layout="wide", initial_sidebar_state="expanded")
-st.title("👩‍⚕️ Pharmacist Shift Scheduler Pro")
-st.markdown("โปรแกรมจัดตารางเวรเภสัชกรอัตโนมัติ พร้อมระบบ Optimization เพื่อความสมดุลและยุติธรรม")
+st.set_page_config(page_title="Pharmacist Scheduler", layout="wide")
+st.title("👩‍⚕️ Pharmacist Shift Scheduler")
+st.info("Set the desired month and year in the sidebar, then click 'Generate Schedule'")
 
-# --- Initialize Session State ---
-if 'stop_generation' not in st.session_state:
-    st.session_state.stop_generation = False
-if 'processing' not in st.session_state:
-    st.session_state.processing = False
-
-def set_processing_status(status):
-    st.session_state.processing = status
-
-def request_stop():
-    st.session_state.stop_generation = True
 
 # --- Sidebar for Inputs ---
 with st.sidebar:
-    st.header("⚙️ Controls")
+    st.header("⚙️ Configuration")
     
+    # User inputs for year, month, and iterations
     current_year = datetime.now().year
     year = st.number_input("Year", min_value=current_year, max_value=current_year + 5, value=current_year)
-    month = st.selectbox("Month", options=range(1, 13), format_func=lambda x: datetime(year, x, 1).strftime("%B"), index=datetime.now().month - 1)
-    iterations = st.slider("Optimization Iterations", min_value=10, max_value=500, value=50, help="ยิ่งค่าสูง อาจจะได้ตารางที่ดีขึ้น แต่ใช้เวลาประมวลผลนานขึ้น")
+    month = st.selectbox("Month", options=range(1, 13), format_func=lambda x: datetime(year, x, 1).strftime("%B"), index=datetime.now().month -1)
+    iterations = st.slider("Optimization Iterations", min_value=1, max_value=500, value=50, help="Higher values may yield a better schedule but take longer to process.")
 
-    st.divider()
+    generate_button = st.button("Generate Schedule", type="primary", use_container_width=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🚀 Generate Schedule", type="primary", use_container_width=True, disabled=st.session_state.processing):
-            set_processing_status(True)
-            st.session_state.stop_generation = False # Reset stop flag
-            # Clear previous results
-            if 'best_schedule' in st.session_state:
-                del st.session_state['best_schedule']
-            st.rerun()
 
-    with col2:
-        st.button("⏹️ Stop Generation", use_container_width=True, on_click=request_stop, disabled=not st.session_state.processing)
-
-# --- Main Area for Logic and Outputs ---
-if st.session_state.processing:
+# --- Main Area for Outputs ---
+if generate_button:
     try:
-        with st.spinner(f"กำลังโหลดข้อมูลและจัดตารางสำหรับเดือน {datetime(year, month, 1).strftime('%B %Y')}..."):
+        with st.spinner(f"Loading data from Google Sheets and generating schedule for {datetime(year, month, 1).strftime('%B %Y')}..."):
             
+            # 1. Specify the public Google Sheets URL with the output=xlsx parameter
             excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
+
             st.write("Reading data from Google Sheets...")
 
+            # 2. Read all sheets from the Excel file into a dictionary
             try:
-                # Use a context manager for the ExcelFile to ensure it's closed properly
-                with pd.ExcelFile(excel_url) as xls:
-                    all_sheets_dict = {sheet_name: xls.parse(sheet_name) for sheet_name in xls.sheet_names}
-                    special_notes_df = xls.parse("SpecialNotes", index_col=0) if "SpecialNotes" in xls.sheet_names else None
-            except Exception as e:
-                st.error(f"Could not read the Excel file from the Google Sheets URL. Error: {e}")
-                set_processing_status(False)
-                st.stop()
+                # sheet_name=None tells pandas to read all sheets
+                # The first column of "SpecialNotes" is used as the index
+                all_sheets_dict = pd.read_excel(excel_url, sheet_name=None)
+                
+                # Load SpecialNotes separately to correctly set the index column
+                try:
+                    special_notes_df = pd.read_excel(excel_url, sheet_name="SpecialNotes", index_col=0)
+                except Exception:
+                    st.warning("Sheet 'SpecialNotes' not found or is empty. Proceeding without it.")
+                    special_notes_df = None
 
+                st.success("Successfully read data from Google Sheets!")
+            except Exception as e:
+                st.error(f"Could not read the Excel file from the Google Sheets URL. Please check the link and sharing permissions. Error: {e}")
+                st.stop() 
+
+            # 3. Function to safely get a DataFrame from the loaded dictionary
             def get_df_from_dict(sheet_name):
                 df = all_sheets_dict.get(sheet_name)
-                # Check for required sheets
-                if df is None and sheet_name in ["Pharmacists", "Shifts", "Departments", "PreAssignments"]:
-                     st.error(f"Required sheet '{sheet_name}' not found!")
+                if df is None:
+                    st.warning(f"Sheet '{sheet_name}' not found in the Excel file. Proceeding without it.")
                 return df
 
+            # === Get data for each sheet ===
             pharmacists_df = get_df_from_dict("Pharmacists")
             shifts_df = get_df_from_dict("Shifts")
             departments_df = get_df_from_dict("Departments")
             pre_assignments_df = get_df_from_dict("PreAssignments")
             
-            if any(df is None for df in [pharmacists_df, shifts_df, departments_df, pre_assignments_df]):
-                st.error("One or more required sheets are missing. Stopping.")
-                set_processing_status(False)
+            # Optional Sheets
+            historical_scores_df = get_df_from_dict("HistoricalScores")
+            shift_limits_df = get_df_from_dict("ShiftLimits")
+            holiday_df = get_df_from_dict("Holiday")
+            holiday2_df = get_df_from_dict("Holiday 2") 
+            prefre_df = get_df_from_dict("Prefre")
+            
+            # === Validate that required sheets are present ===
+            required_sheets = {
+                "Pharmacists": pharmacists_df, 
+                "Shifts": shifts_df, 
+                "Departments": departments_df, 
+                "PreAssignments": pre_assignments_df
+            }
+            missing_sheets = [name for name, df in required_sheets.items() if df is None]
+            if missing_sheets:
+                st.error(f"Required sheets are missing from the Excel file: {', '.join(missing_sheets)}")
                 st.stop()
 
+            # 4. Prepare all dataframes into a dict for the scheduler
             all_dataframes = {
-                "pharmacists": pharmacists_df, "shifts": shifts_df, "departments": departments_df,
-                "pre_assignments": pre_assignments_df, "special_notes": special_notes_df,
-                "historical_scores": get_df_from_dict("HistoricalScores"),
-                "shift_limits": get_df_from_dict("ShiftLimits"), "holiday": get_df_from_dict("Holiday"),
-                "holiday2": get_df_from_dict("Holiday 2"), "prefre": get_df_from_dict("Prefre"),
+                "pharmacists": pharmacists_df,
+                "shifts": shifts_df,
+                "departments": departments_df,
+                "pre_assignments": pre_assignments_df,
+                "historical_scores": historical_scores_df,
+                "special_notes": special_notes_df, # Use the specially loaded one
+                "shift_limits": shift_limits_df,
+                "holiday": holiday_df,
+                "holiday2": holiday2_df,
+                "prefre": prefre_df,
             }
 
+            # 5. Initialize the scheduler and run the optimization
             scheduler = PharmacistScheduler(dataframes=all_dataframes)
             best_schedule, best_unfilled_info = scheduler.optimize_schedule(year, month, iterations)
 
-            if best_schedule is not None:
-                st.session_state['best_schedule'] = best_schedule
-                st.session_state['best_unfilled_info'] = best_unfilled_info
-                st.session_state['scheduler_instance'] = scheduler
-                st.session_state['output_filename'] = f'Pharmacist_Schedule_{year}_{month:02d}.xlsx'
+        if best_schedule is not None:
+            st.header("✅ Optimization Complete")
             
-    except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดระหว่างการสร้างตาราง: {e}")
-        st.exception(e)
-    finally:
-        set_processing_status(False)
-        st.rerun()
+            # Store results in session state to enable downloading
+            st.session_state['best_schedule'] = best_schedule
+            st.session_state['best_unfilled_info'] = best_unfilled_info
+            st.session_state['scheduler_instance'] = scheduler
+            st.session_state['output_filename'] = f'Pharmacist_Schedule_{year}_{month:02d}.xlsx'
+        else:
+            st.error("Could not generate a valid schedule. Please check the data in your Google Sheet.")
 
-# --- Display results if they exist ---
+    except Exception as e:
+        st.error(f"An error occurred during schedule generation: {e}")
+        st.exception(e)
+
+# Display results if they exist in the session state
 if 'best_schedule' in st.session_state:
     st.header("📊 Results")
     
-    tab1, tab2, tab3 = st.tabs(["📅 Daily Summary (Styled)", "📋 Raw Data Preview", "📥 Download"])
-
-    with tab1:
-        st.subheader("ตารางสรุปรายวัน (Daily Summary)")
-        display_styled_summary(st.session_state['best_schedule'], st.session_state['scheduler_instance'])
-
-    with tab2:
-        st.subheader("ข้อมูลตารางดิบ (Raw Data)")
-        st.dataframe(st.session_state['best_schedule'])
-        
-    with tab3:
-        st.subheader("ดาวน์โหลดไฟล์ Excel ฉบับเต็ม")
-        excel_buffer = st.session_state['scheduler_instance'].export_to_excel(
-            st.session_state['best_schedule'],
-            st.session_state['best_unfilled_info']
-        )
-        st.download_button(
-            label="📥 Download Full Schedule (Excel)",
-            data=excel_buffer,
-            file_name=st.session_state['output_filename'],
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            type="primary"
-        )
-else:
-    if not st.session_state.processing:
-        st.info("กรุณาตั้งค่าเดือนและปีที่ต้องการในแถบด้านข้าง แล้วกดปุ่ม 'Generate Schedule' เพื่อเริ่ม")
-
-
+    # Generate the Excel file in memory for download
+    excel_buffer = st.session_state['scheduler_instance'].export_to_excel(
+        st.session_state['best_schedule'],
+        st.session_state['best_unfilled_info']
+    )
+    
+    st.download_button(
+        label="📥 Download Full Schedule (Excel)",
+        data=excel_buffer,
+        file_name=st.session_state['output_filename'],
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+    
+    st.subheader("Generated Schedule Preview")
+    st.dataframe(st.session_state['best_schedule'])
 
 
 
