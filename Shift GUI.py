@@ -1011,7 +1011,7 @@ with st.sidebar:
 if generate_button:
     try:
         # Get your Spreadsheet ID
-        SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE" # ⚠️ PASTE YOUR GOOGLE SHEET ID HERE
+        SPREADSHEET_ID = "1a45tRr3ckxa1lGPIxHnMldL9mgCTV_hZ" # ⚠️ PASTE YOUR GOOGLE SHEET ID HERE
 
         with st.spinner(f"Loading data from Google Sheets for {datetime(year, month, 1).strftime('%B %Y')}..."):
             
@@ -1108,6 +1108,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
