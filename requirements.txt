@@ -1,4 +1,5 @@
 streamlit
+tqdm
 openpyxl
 pandas
 numpy
