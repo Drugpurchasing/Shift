@@ -977,7 +977,7 @@ if generate_button:
             # 2. อ่านข้อมูลจากทุกแท็บที่จำเป็น
             # ⚠️ สำคัญ: แก้ "YOUR_SPREADSHEET_ID_HERE" เป็น ID ของ Google Sheet ของคุณ
             # คุณสามารถหา ID ได้จาก URL ของ Sheet: docs.google.com/spreadsheets/d/THIS_IS_THE_ID/edit
-            spreadsheet_id = "1a45tRr3ckxa1lGPIxHnMldL9mgCTV_hZ" # <--- แก้ไขตรงนี้
+            spreadsheet_id = "1a45tRr3ckxa1lGPIxHnMldL9mgCTV_hZ"# <--- แก้ไขตรงนี้
 
             st.write("Reading data from Google Sheets...")
 
@@ -1056,6 +1056,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
