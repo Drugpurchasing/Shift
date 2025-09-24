@@ -1,2 +1,15 @@
 streamlit
 openpyxl
+pandas
+numpy
+datetime
+openpyxl.styles
+openpyxl.utils
+random
+statistics
+tqdm
+tkinter
+threading
+sys
+os
+tksheet
