@@ -56,19 +56,6 @@ class PharmacistScheduler:
         pre_assign_df = dataframes.get('pre_assignments')
         notes_df = dataframes.get('special_notes')
         limits_df = dataframes.get('shift_limits')
-        holiday_df = dataframes.get('holiday')
-        holiday2_df = dataframes.get('holiday2')
-        prefre_df = dataframes.get('prefre')
-
-        # === Process Holidays ===
-        if holiday_df is not None:
-            # Assuming 'Holiday' sheet has a column named 'Date'
-            valid_dates = pd.to_datetime(holiday_df['Date'], errors='coerce').dropna()
-            self.holidays['specific_dates'].extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
-        if holiday2_df is not None:
-             # Assuming 'Holiday 2' sheet has a column named 'Date'
-            valid_dates = pd.to_datetime(holiday2_df['Date'], errors='coerce').dropna()
-            self.holidays['specific_dates'].extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
 
         # === Process Pharmacists ===
         self.pharmacists = {}
@@ -1088,6 +1075,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
