@@ -3,4 +3,4 @@ pandas
 numpy
 openpyxl
 PyGithub
-streamlit_gsheets
+streamlit-gsheets
