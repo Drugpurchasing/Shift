@@ -8,10 +8,9 @@ from openpyxl.utils import get_column_letter
 import random
 from statistics import stdev
 from io import BytesIO
-import time # เพิ่มเข้ามาเพื่อสาธิตการทำงาน
 
 # =========================================================================
-# ================== PHARMACIST SCHEDULER CLASS (ฉบับปรับปรุง) =============
+# ================== PHARMACIST SCHEDULER CLASS ===========================
 # =========================================================================
 class PharmacistScheduler:
     """
@@ -109,19 +108,17 @@ class PharmacistScheduler:
 
         # === Process SpecialNotes (if available) ===
         if notes_df is not None:
-            # When loaded with index_col=0, the index is the pharmacist's name
             for pharmacist, row_data in notes_df.iterrows():
                 if pharmacist in self.pharmacists:
                     for date_col, note in row_data.items():
                         if pd.notna(note) and str(note).strip():
                             try:
-                                # The column headers are the dates
                                 date_str = pd.to_datetime(date_col).strftime('%Y-%m-%d')
                                 if pharmacist not in self.special_notes:
                                     self.special_notes[pharmacist] = {}
                                 self.special_notes[pharmacist][date_str] = str(note).strip()
                             except (ValueError, TypeError):
-                                continue # Ignore columns that aren't valid dates
+                                continue 
 
         # === Process ShiftLimits (if available) ===
         if limits_df is not None:
@@ -134,7 +131,7 @@ class PharmacistScheduler:
                         self.shift_limits[pharmacist] = {}
                     self.shift_limits[pharmacist][category] = int(max_count)
 
-        # === Process Holidays (FIXED) ===
+        # === Process Holidays ===
         holiday_df = dataframes.get('holiday')
         holiday2_df = dataframes.get('holiday2')
         
@@ -147,7 +144,6 @@ class PharmacistScheduler:
             valid_dates = pd.to_datetime(holiday2_df['Date'], errors='coerce').dropna()
             holiday_dates.extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
         
-        # Use a set to get unique dates, then convert back to a list
         self.holidays['specific_dates'] = list(set(holiday_dates))
 
     def load_historical_scores(self, dataframes: dict):
@@ -216,12 +212,12 @@ class PharmacistScheduler:
         if isinstance(time_input, str):
             try:
                 hours, minutes = map(int, time_input.split(':'))
-            except ValueError: # Handle if format is not HH:MM
+            except ValueError:
                 return 0
         elif isinstance(time_input, time):
             hours, minutes = time_input.hour, time_input.minute
         else:
-            return 0 # Default for unexpected types
+            return 0
         return hours * 60 + minutes
 
     def check_time_overlap(self, start1, end1, start2, end2):
@@ -586,7 +582,6 @@ class PharmacistScheduler:
         self._pre_check_staffing_levels(year, month)
         
         for i in range(iterations):
-            # Check for stop signal at the beginning of each iteration
             if not st.session_state.get('running', False):
                 status_text.warning("🛑 Generation stopped by user.")
                 break
@@ -598,7 +593,6 @@ class PharmacistScheduler:
 
             current_schedule, unfilled_info = self.generate_monthly_schedule_shuffled(year, month, iteration_num=i+1)
             
-            # If a schedule couldn't be filled on a non-problem day, it's invalid. Skip.
             if unfilled_info['other_days']:
                 if log_placeholder:
                     log_placeholder.info(f"Iteration {i+1}: Skipped (Could not fill shifts on non-problem days).")
@@ -624,8 +618,8 @@ class PharmacistScheduler:
                     log_placeholder.info(log_message)
         
         if progress_bar:
-            progress_bar.progress(1.0) # Mark as complete
-        if status_text and st.session_state.get('running', False): # Only show complete if not stopped
+            progress_bar.progress(1.0)
+        if status_text and st.session_state.get('running', False):
             status_text.success("✅ Optimization Complete!")
 
         if best_schedule is not None:
@@ -759,7 +753,7 @@ class PharmacistScheduler:
             'header_fill': '#D3D3D3',
             'weekend_fill': '#FFE4E1',
             'holiday_fill': '#FFB6C1',
-            'holiday_empty_fill': '#FFFF00', # Yellow for empty cells on holidays/weekends
+            'holiday_empty_fill': '#FFFF00',
             'off_fill': '#D3D3D3',
             'fills': {
                 'I100': '#00B050', 'O100': '#00B0F0', 'Care': '#D40202', 'C8': '#E6B8AF',
@@ -773,10 +767,7 @@ class PharmacistScheduler:
         }
 
     def create_daily_summary(self, ws, schedule):
-        # This function is now only for Excel export
         styles_info = self._setup_daily_summary_styles()
-        
-        # Convert hex codes to openpyxl PatternFill objects
         styles = {
             'header_fill': PatternFill(fill_type='solid', start_color=styles_info['header_fill'].replace('#', 'FF')),
             'weekend_fill': PatternFill(fill_type='solid', start_color=styles_info['weekend_fill'].replace('#', 'FF')),
@@ -889,7 +880,6 @@ class PharmacistScheduler:
         ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 30, 25, 25
 
     def create_daily_summary_with_codes(self, ws, schedule):
-        # This function is now only for Excel export
         styles_info = self._setup_daily_summary_styles()
         styles = {
             'header_fill': PatternFill(fill_type='solid', start_color=styles_info['header_fill'].replace('#', 'FF')),
@@ -934,7 +924,6 @@ class PharmacistScheduler:
                 for cell in all_cells:
                     cell.border = styles['border']
                     cell.alignment = Alignment(horizontal="center", vertical="center")
-                    # No font change here for note_cell
                 date_str = date.strftime('%Y-%m-%d')
                 note_text = self.special_notes.get(pharmacist, {}).get(date_str)
                 shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
@@ -1014,11 +1003,8 @@ class PharmacistScheduler:
 
 
 # =========================================================================
-# ================== STREAMLIT APPLICATION UI =============================
+# ================== STREAMLIT HELPER FUNCTION ============================
 # =========================================================================
-
-# --- NEW HELPER FUNCTION FOR STYLING DATAFRAME ---
-# --- NEW HELPER FUNCTION FOR STYLING DATAFRAME (REVISED) ---
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 'Daily Summary' format for Streamlit display.
@@ -1038,8 +1024,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
     active_pharmacists = [p for p in ordered_pharmacists if p in scheduler.pharmacists]
     sorted_dates = sorted(schedule_df.index)
     
-    # Create a DataFrame where each cell contains a tuple: (display_text, style_key)
-    # This allows us to display one thing (hours) but style based on another (shift code)
     summary_data = []
     for pharmacist in active_pharmacists:
         row_data = {"Pharmacist": pharmacist}
@@ -1057,7 +1041,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                     display_text = f"{hours}N" if scheduler.is_night_shift(s) else str(hours)
                     display_texts.append(display_text)
                 
-                # Join for display and for style key
                 row_data[date.strftime('%d/%m')] = ("\n".join(display_texts), "\n".join(shifts))
             else:
                 row_data[date.strftime('%d/%m')] = ('', '') # Empty display and style key
@@ -1079,7 +1062,7 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
         if style_key == 'OFF':
             bg_color = styles['off_fill']
             font_weight = 'bold'
-        elif style_key: # Cell has a shift code
+        elif style_key: 
             first_shift = style_key.split('\n')[0]
             prefix = next((p for p in styles['fills'] if first_shift.startswith(p)), None)
             if prefix:
@@ -1091,17 +1074,13 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
 
         return f'background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;'
 
-    # Create a styler object that will be built upon
     styler = summary_df.style
 
-    # 1. Apply the styling function based on the tuple in each cell
     for col in summary_df.columns:
         styler = styler.map(lambda val: apply_cell_styling(val, col), subset=[col])
         
-    # 2. Apply a formatting function to show only the display part of the tuple
     styler = styler.format(lambda val: val[0])
     
-    # 3. Style the header and borders
     styler.set_table_styles([
         {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold')]},
         {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left')]},
@@ -1110,20 +1089,21 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
 
     return styler
 
+
+# =========================================================================
+# ================== STREAMLIT APPLICATION UI =============================
+# =========================================================================
 st.set_page_config(page_title="Pharmacist Scheduler", layout="wide")
 st.title("👩‍⚕️ Pharmacist Shift Scheduler")
 st.markdown("โปรแกรมจัดตารางเวรเภสัชกรอัตโนมัติ โดยพิจารณาจากเงื่อนไขและความชอบของแต่ละบุคคล")
 st.divider()
 
-# --- Initialize session state for the stop button ---
 if 'running' not in st.session_state:
     st.session_state.running = False
 
-# --- Sidebar for Inputs ---
 with st.sidebar:
     st.header("⚙️ ตั้งค่าการทำงาน")
     
-    # User inputs for year, month, and iterations
     current_year = datetime.now().year
     year = st.number_input("Year", min_value=current_year, max_value=current_year + 5, value=current_year)
     month = st.selectbox("Month", options=range(1, 13), format_func=lambda x: datetime(year, x, 1).strftime("%B"), index=datetime.now().month -1)
@@ -1131,65 +1111,21 @@ with st.sidebar:
     
     st.divider()
 
-    # --- Control Buttons ---
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🚀 Generate Schedule", type="primary", use_container_width=True):
             st.session_state.running = True
-            # Clear previous results when starting a new generation
             if 'best_schedule' in st.session_state:
                 del st.session_state['best_schedule']
     with col2:
         if st.button("🛑 Stop Generation", use_container_width=True):
             st.session_state.running = False
 
-
-# --- Main Area for Outputs ---
-# =========================================================================
-# ================== STREAMLIT APPLICATION UI (REVISED) ===================
-# =========================================================================
-st.set_page_config(page_title="Pharmacist Scheduler", layout="wide")
-st.title("👩‍⚕️ Pharmacist Shift Scheduler")
-st.markdown("โปรแกรมจัดตารางเวรเภสัชกรอัตโนมัติ โดยพิจารณาจากเงื่อนไขและความชอบของแต่ละบุคคล")
-st.divider()
-
-# --- Initialize session state for the stop button ---
-if 'running' not in st.session_state:
-    st.session_state.running = False
-
-# --- Sidebar for Inputs ---
-with st.sidebar:
-    st.header("⚙️ ตั้งค่าการทำงาน")
-    
-    # User inputs for year, month, and iterations
-    current_year = datetime.now().year
-    year = st.number_input("Year", min_value=current_year, max_value=current_year + 5, value=current_year)
-    month = st.selectbox("Month", options=range(1, 13), format_func=lambda x: datetime(year, x, 1).strftime("%B"), index=datetime.now().month -1)
-    iterations = st.slider("Optimization Iterations", min_value=1, max_value=500, value=50, help="ยิ่งค่าสูง อาจจะได้ตารางที่ดีขึ้น แต่ใช้เวลาประมวลผลนานขึ้น")
-    
-    st.divider()
-
-    # --- Control Buttons ---
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🚀 Generate Schedule", type="primary", use_container_width=True):
-            st.session_state.running = True
-            # Clear previous results when starting a new generation
-            if 'best_schedule' in st.session_state:
-                del st.session_state['best_schedule']
-    with col2:
-        if st.button("🛑 Stop Generation", use_container_width=True):
-            st.session_state.running = False
-
-
-# --- Main Area for Outputs ---
-# (This part remains the same as the previous version)
 if st.session_state.get('running', False):
     try:
         st.header("⏳ กำลังประมวลผล...")
         st.info(f"กำลังสร้างตารางเวรสำหรับเดือน {datetime(year, month, 1).strftime('%B %Y')}...")
 
-        # Placeholders for progress bar and status text
         progress_bar = st.progress(0)
         status_text = st.empty()
         log_placeholder = st.expander("แสดง Log การทำงานแบบละเอียด", expanded=False)
@@ -1215,20 +1151,17 @@ if st.session_state.get('running', False):
                 st.warning(f"ไม่พบชีท '{sheet_name}' ในไฟล์ Excel")
             return df
 
-        # Get data for each sheet
         pharmacists_df = get_df_from_dict("Pharmacists")
         shifts_df = get_df_from_dict("Shifts")
         departments_df = get_df_from_dict("Departments")
         pre_assignments_df = get_df_from_dict("PreAssignments")
         
-        # Optional Sheets
         historical_scores_df = get_df_from_dict("HistoricalScores")
         shift_limits_df = get_df_from_dict("ShiftLimits")
         holiday_df = get_df_from_dict("Holiday")
         holiday2_df = get_df_from_dict("Holiday 2")  
         prefre_df = get_df_from_dict("Prefre")
         
-        # Validate that required sheets are present
         required_sheets = { "Pharmacists": pharmacists_df, "Shifts": shifts_df, "Departments": departments_df, "PreAssignments": pre_assignments_df }
         missing_sheets = [name for name, df in required_sheets.items() if df is None]
         if missing_sheets:
@@ -1236,7 +1169,6 @@ if st.session_state.get('running', False):
             st.session_state.running = False
             st.stop()
 
-        # Prepare all dataframes into a dict for the scheduler
         all_dataframes = {
             "pharmacists": pharmacists_df, "shifts": shifts_df, "departments": departments_df,
             "pre_assignments": pre_assignments_df, "historical_scores": historical_scores_df,
@@ -1244,7 +1176,6 @@ if st.session_state.get('running', False):
             "holiday": holiday_df, "holiday2": holiday2_df, "prefre": prefre_df,
         }
 
-        # Initialize the scheduler and run the optimization
         scheduler = PharmacistScheduler(dataframes=all_dataframes)
         best_schedule, best_unfilled_info = scheduler.optimize_schedule(
             year, month, iterations, 
@@ -1253,11 +1184,9 @@ if st.session_state.get('running', False):
             log_placeholder=log_placeholder.container()
         )
         
-        # Stop running after completion
         st.session_state.running = False
 
         if best_schedule is not None:
-            # Store results in session state to enable display and downloading
             st.session_state['best_schedule'] = best_schedule
             st.session_state['best_unfilled_info'] = best_unfilled_info
             st.session_state['scheduler_instance'] = scheduler
@@ -1271,8 +1200,6 @@ if st.session_state.get('running', False):
         st.exception(e)
         st.session_state.running = False
 
-
-# Display results if they exist in the session state
 if 'best_schedule' in st.session_state:
     st.header("📊 ผลลัพธ์การจัดตารางเวร")
     
@@ -1319,7 +1246,6 @@ if 'best_schedule' in st.session_state:
 
         st.divider()
 
-        # --- NEW: Total Hours Summary Table ---
         st.subheader("สรุปชั่วโมงการทำงานรายบุคคล")
         
         ordered_pharmacists = [
@@ -1356,8 +1282,6 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
-
-
 
 
 
