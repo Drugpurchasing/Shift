@@ -1007,62 +1007,39 @@ with st.sidebar:
 
 
 # --- Main Area for Outputs ---
+# --- Main Area for Outputs ---
 if generate_button:
     try:
-        with st.spinner(f"กำลังโหลดข้อมูล Excel จาก GitHub และจัดตารางสำหรับเดือน {datetime(year, month, 1).strftime('%B %Y')}..."):
+        # Get your Spreadsheet ID
+        SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE" # ⚠️ PASTE YOUR GOOGLE SHEET ID HERE
+
+        with st.spinner(f"Loading data from Google Sheets for {datetime(year, month, 1).strftime('%B %Y')}..."):
             
-            # 1. ระบุ Raw URL ของไฟล์ Excel บน GitHub
-            # ⚠️⚠️⚠️ สำคัญ: เปลี่ยน URL นี้เป็น Raw URL ของไฟล์ Excel ของคุณ ⚠️⚠️⚠️
-            excel_url = "https://raw.githubusercontent.com/Drugpurchasing/Shift/main/pharmacist_schedule.xlsx"
+            # === Read REQUIRED sheets from Google Sheets ===
+            st.write("Reading required worksheets...")
+            pharmacists_df = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="Pharmacists")
+            shifts_df = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="Shifts")
+            departments_df = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="Departments")
+            pre_assignments_df = conn.read(spreadsheet=SPREADSHEET_ID, worksheet="PreAssignments")
 
-            st.write("Reading data from Excel file on GitHub...")
+            # === Read OPTIONAL sheets from Google Sheets with error handling ===
+            st.write("Reading optional worksheets...")
+            def read_optional_sheet(sheet_name):
+                try:
+                    return conn.read(spreadsheet=SPREADSHEET_ID, worksheet=sheet_name)
+                except Exception:
+                    st.warning(f"Optional worksheet '{sheet_name}' not found. Proceeding without it.")
+                    return None
 
-            # 2. อ่านทุกชีตจากไฟล์ Excel มาเก็บใน Dictionary
-            # ใช้ try-except เพื่อดักจับข้อผิดพลาดหากไม่สามารถโหลดไฟล์ได้ (เช่น URL ผิด, ไฟล์ไม่มีอยู่)
-            try:
-                # การตั้งค่า sheet_name=None จะทำให้ pandas อ่านทุกชีตในไฟล์มาเป็น dict
-                all_sheets_dict = pd.read_excel(excel_url, sheet_name=None)
-                st.success("Successfully read data from GitHub Excel file!")
-            except Exception as e:
-                st.error(f"ไม่สามารถอ่านไฟล์ Excel จาก GitHub ได้ กรุณาตรวจสอบ Raw URL อีกครั้ง. Error: {e}")
-                st.stop() # หยุดการทำงานของแอปถ้าโหลดไฟล์ไม่ได้
+            historical_scores_df = read_optional_sheet("HistoricalScores")
+            special_notes_df = read_optional_sheet("SpecialNotes")
+            shift_limits_df = read_optional_sheet("ShiftLimits")
+            # You can add holiday_df, prefre_df etc. here if they are separate worksheets
+            # holiday_df = read_optional_sheet("Holiday") 
 
-            # 3. ฟังก์ชันสำหรับดึง DataFrame ของแต่ละชีตออกจาก dict ที่โหลดมา
-            #    พร้อมแจ้งเตือนหากไม่มีชีตนั้นๆ (สำหรับชีตที่ไม่บังคับ)
-            def get_df_from_dict(sheet_name):
-                df = all_sheets_dict.get(sheet_name)
-                if df is None:
-                    # แจ้งเตือนสำหรับชีตที่ไม่บังคับ (Optional)
-                    st.warning(f"Sheet '{sheet_name}' not found in the Excel file. Proceeding without it.")
-                return df
+            st.success("Successfully read data from Google Sheets!")
 
-            # === ดึงข้อมูลแต่ละชีตออกมาใส่ตัวแปร ===
-            pharmacists_df = get_df_from_dict("Pharmacists")
-            shifts_df = get_df_from_dict("Shifts")
-            departments_df = get_df_from_dict("Departments")
-            pre_assignments_df = get_df_from_dict("PreAssignments")
-            
-            # ชีตที่ไม่บังคับ (Optional Sheets)
-            historical_scores_df = get_df_from_dict("HistoricalScores")
-            special_notes_df = get_df_from_dict("SpecialNotes")
-            shift_limits_df = get_df_from_dict("ShiftLimits")
-            holiday_df = get_df_from_dict("Holiday")
-            holiday2_df = get_df_from_dict("Holiday 2") # ชื่อชีตอาจมีเว้นวรรค
-            prefre_df = get_df_from_dict("Prefre")
-            
-            # === ตรวจสอบว่าชีตที่จำเป็น (Required) มีอยู่จริงหรือไม่ ===
-            required_sheets = {
-                "Pharmacists": pharmacists_df, 
-                "Shifts": shifts_df, 
-                "Departments": departments_df, 
-                "PreAssignments": pre_assignments_df
-            }
-            missing_sheets = [name for name, df in required_sheets.items() if df is None]
-            if missing_sheets:
-                st.error(f"Required sheets are missing from the Excel file: {', '.join(missing_sheets)}")
-                st.stop()
-
-            # 4. เตรียมข้อมูลทั้งหมดใส่ dict เพื่อส่งให้ Scheduler (โครงสร้างเหมือนเดิม)
+            # Prepare the data dictionary for the scheduler class
             all_dataframes = {
                 "pharmacists": pharmacists_df,
                 "shifts": shifts_df,
@@ -1071,30 +1048,45 @@ if generate_button:
                 "historical_scores": historical_scores_df,
                 "special_notes": special_notes_df,
                 "shift_limits": shift_limits_df,
-                "holiday": holiday_df,
-                "holiday2": holiday2_df,
-                "prefre": prefre_df,
+                # Add other optional dataframes here
             }
 
-            # 5. เริ่มต้น Scheduler และรันการ Optimize (เหมือนเดิม)
+            # Initialize the scheduler and run the optimization
             scheduler = PharmacistScheduler(dataframes=all_dataframes)
             best_schedule, best_unfilled_info = scheduler.optimize_schedule(year, month, iterations)
 
-        # (ส่วนที่เหลือของโค้ดในการแสดงผลลัพธ์เหมือนเดิมทั้งหมด)
-        if best_schedule is not None:
-            st.header("✅ Optimization Complete")
-            
-            # เก็บผลลัพธ์ไว้ใน session state เพื่อให้สามารถดาวน์โหลดได้
-            st.session_state['best_schedule'] = best_schedule
-            st.session_state['best_unfilled_info'] = best_unfilled_info
-            st.session_state['scheduler_instance'] = scheduler
-            st.session_state['output_filename'] = f'Pharmacist_Schedule_{year}_{month}.xlsx'
-        else:
-            st.error("ไม่สามารถสร้างตารางที่เหมาะสมได้ กรุณาตรวจสอบข้อมูลในไฟล์ Excel")
+            # Store results in session state for download
+            if best_schedule is not None:
+                st.session_state['best_schedule'] = best_schedule
+                st.session_state['best_unfilled_info'] = best_unfilled_info
+                st.session_state['scheduler_instance'] = scheduler
+                st.session_state['output_filename'] = f'Pharmacist_Schedule_{year}_{month}.xlsx'
+            else:
+                st.error("Could not generate a valid schedule. Please check the data in your Google Sheet.")
 
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดระหว่างการสร้างตาราง: {e}")
+        st.error(f"An error occurred during schedule generation: {e}")
         st.exception(e)
+
+# --- Display results if available (this part of your code is correct) ---
+if 'best_schedule' in st.session_state:
+    st.header("📊 Results")
+    
+    excel_buffer = st.session_state['scheduler_instance'].export_to_excel(
+        st.session_state['best_schedule'],
+        st.session_state['best_unfilled_info']
+    )
+    
+    st.download_button(
+        label="📥 Download Full Schedule (Excel)",
+        data=excel_buffer,
+        file_name=st.session_state['output_filename'],
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+    
+    st.subheader("Generated Schedule Preview")
+    st.dataframe(st.session_state['best_schedule'])
 
 # แสดงผลลัพธ์ถ้ามีข้อมูลอยู่ใน session state
 if 'best_schedule' in st.session_state:
@@ -1116,6 +1108,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
