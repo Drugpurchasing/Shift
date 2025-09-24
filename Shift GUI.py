@@ -8,13 +8,11 @@ from openpyxl.utils import get_column_letter
 import random
 from statistics import stdev
 from io import BytesIO
-
+# Library สำหรับเชื่อมต่อ Google Sheets (ไม่จำเป็นต้อง import GSheetsConnection โดยตรง)
 
 # =========================================================================
 # ================== PHARMACIST SCHEDULER CLASS (ฉบับปรับปรุง) =============
 # =========================================================================
-# หมายเหตุ: ปรับแก้เมธอด __init__ และ read_data_from_excel
-# ให้กลายเป็นเมธอดที่รับ DataFrames เข้ามาโดยตรง
 class PharmacistScheduler:
     """
     Pharmacy shift scheduler with optimization and Excel export.
@@ -24,8 +22,6 @@ class PharmacistScheduler:
     W_HOURS = 4
     W_PREFERENCE = 4
 
-    # --- (ปรับปรุง) __init__ ---
-    # รับ dict ของ dataframes แทนที่จะรับ excel_file_path
     def __init__(self, dataframes: dict):
         self.pharmacists = {}
         self.shift_types = {}
@@ -36,34 +32,43 @@ class PharmacistScheduler:
         self.special_notes = {}
         self.shift_limits = {}
         self.problem_days = set()
+        
+        # Holiday data from sheets
+        self.holidays = {'specific_dates': []}
 
-        # เรียกเมธอดใหม่เพื่อประมวลผล DataFrames ที่รับเข้ามา
         self.process_dataframes(dataframes)
-
         self.load_historical_scores(dataframes)
         self._calculate_preference_multipliers()
 
         self.night_shifts = {
             'I100-10', 'I100-12N', 'I400-12N', 'I400-10', 'O400ER-12N', 'O400ER-10'
         }
-        self.holidays = {
-            'specific_dates': ['2025-10-13','2025-10-23']
-        }
+        
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['shift_counts'] = {
                 shift_type: 0 for shift_type in self.shift_types
             }
     
-    # --- (เมธอดใหม่) process_dataframes ---
-    # นำ Logic การประมวลผลจาก read_data_from_excel มาไว้ที่นี่
     def process_dataframes(self, dataframes: dict):
-        # ใช้ df จาก dict ที่ส่งเข้ามา
         pharmacists_df = dataframes.get('pharmacists')
         shifts_df = dataframes.get('shifts')
         departments_df = dataframes.get('departments')
         pre_assign_df = dataframes.get('pre_assignments')
         notes_df = dataframes.get('special_notes')
         limits_df = dataframes.get('shift_limits')
+        holiday_df = dataframes.get('holiday')
+        holiday2_df = dataframes.get('holiday2')
+        prefre_df = dataframes.get('prefre')
+
+        # === Process Holidays ===
+        if holiday_df is not None:
+            # Assuming 'Holiday' sheet has a column named 'Date'
+            valid_dates = pd.to_datetime(holiday_df['Date'], errors='coerce').dropna()
+            self.holidays['specific_dates'].extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
+        if holiday2_df is not None:
+             # Assuming 'Holiday 2' sheet has a column named 'Date'
+            valid_dates = pd.to_datetime(holiday2_df['Date'], errors='coerce').dropna()
+            self.holidays['specific_dates'].extend(valid_dates.dt.strftime('%Y-%m-%d').tolist())
 
         # === Process Pharmacists ===
         self.pharmacists = {}
@@ -90,8 +95,8 @@ class PharmacistScheduler:
             self.shift_types[shift_code] = {
                 'description': row['Description'],
                 'shift_type': row['Shift Type'],
-                'start_time': row['Start Time'],
-                'end_time': row['End Time'],
+                'start_time': str(row['Start Time']), # Ensure time is string
+                'end_time': str(row['End Time']),     # Ensure time is string
                 'hours': row['Hours'],
                 'required_skills': str(row['Required Skills']).split(','),
                 'restricted_next_shifts': str(row['Restricted Next Shifts']).split(',') if pd.notna(row['Restricted Next Shifts']) else [],
@@ -104,7 +109,7 @@ class PharmacistScheduler:
             self.departments[department] = str(row['Shift Codes']).split(',')
         
         # === Process PreAssignments ===
-        pre_assign_df['Date'] = pd.to_datetime(pre_assign_df['Date']).dt.strftime('%Y-%m-%d')
+        pre_assign_df['Date'] = pd.to_datetime(pre_assign_df['Date'], errors='coerce').dt.strftime('%Y-%m-%d')
         self.pre_assignments = {}
         for pharmacist, group in pre_assign_df.groupby('Pharmacist'):
             date_dict = {}
@@ -117,14 +122,23 @@ class PharmacistScheduler:
 
         # === Process SpecialNotes (if available) ===
         if notes_df is not None:
-            for pharmacist, row_data in notes_df.iterrows():
+            # Assuming first column is the pharmacist's name, so reset index
+            notes_df.reset_index(inplace=True)
+            # The first column name might be 'index' or the original column name
+            pharmacist_col_name = notes_df.columns[0]
+            
+            for _, row_data in notes_df.iterrows():
+                pharmacist = row_data[pharmacist_col_name]
                 if pharmacist in self.pharmacists:
-                    for date_col, note in row_data.items():
+                    for date_col, note in row_data.drop(pharmacist_col_name).items():
                         if pd.notna(note) and str(note).strip():
-                            date_str = pd.to_datetime(date_col).strftime('%Y-%m-%d')
-                            if pharmacist not in self.special_notes:
-                                self.special_notes[pharmacist] = {}
-                            self.special_notes[pharmacist][date_str] = str(note).strip()
+                            try:
+                                date_str = pd.to_datetime(date_col).strftime('%Y-%m-%d')
+                                if pharmacist not in self.special_notes:
+                                    self.special_notes[pharmacist] = {}
+                                self.special_notes[pharmacist][date_str] = str(note).strip()
+                            except (ValueError, TypeError):
+                                continue # Ignore columns that aren't valid dates
 
         # === Process ShiftLimits (if available) ===
         if limits_df is not None:
@@ -140,7 +154,7 @@ class PharmacistScheduler:
     def load_historical_scores(self, dataframes: dict):
         df = dataframes.get('historical_scores')
         if df is None:
-            st.info("INFO: Sheet 'HistoricalScores' not found in the input file. Proceeding without historical data.")
+            st.info("INFO: Sheet 'HistoricalScores' not found. Proceeding without historical data.")
             return
 
         if 'Pharmacist' in df.columns and 'Total Preference Score' in df.columns:
@@ -152,10 +166,7 @@ class PharmacistScheduler:
         else:
             st.warning("WARNING: 'HistoricalScores' sheet found, but required columns ('Pharmacist', 'Total Preference Score') are missing.")
 
-    # โค้ดส่วนที่เหลือของคลาส PharmacistScheduler เหมือนเดิมทั้งหมด
-    # ตั้งแต่ _pre_check_staffing_levels จนถึง calculate_pharmacist_preference_scores
-    # ... (วางโค้ดส่วนที่เหลือของคลาสทั้งหมดที่นี่) ...
-    # (เพื่อความกระชับจึงไม่ได้แสดงซ้ำ แต่คุณต้องนำมาวางให้ครบ)
+    # ... (ส่วนที่เหลือของคลาส PharmacistScheduler เหมือนเดิมทั้งหมด) ...
     def _pre_check_staffing_levels(self, year, month):
         st.write("\nRunning pre-check for staffing levels (including all shifts + 3 buffer)...")
         start_date = datetime(year, month, 1)
@@ -205,11 +216,14 @@ class PharmacistScheduler:
 
     def convert_time_to_minutes(self, time_input):
         if isinstance(time_input, str):
-            hours, minutes = map(int, time_input.split(':'))
+            try:
+                hours, minutes = map(int, time_input.split(':'))
+            except ValueError: # Handle if format is not HH:MM
+                return 0
         elif isinstance(time_input, time):
             hours, minutes = time_input.hour, time_input.minute
         else:
-            raise ValueError("Invalid input type. Expected string (HH:MM) or datetime.time object.")
+            return 0 # Default for unexpected types
         return hours * 60 + minutes
 
     def check_time_overlap(self, start1, end1, start2, end2):
@@ -942,7 +956,6 @@ class PharmacistScheduler:
                     scores[pharmacist] = percentage_score
         return scores
 
-
 # =========================================================================
 # ================== STREAMLIT APPLICATION UI =============================
 # =========================================================================
@@ -970,37 +983,48 @@ if generate_button:
     try:
         with st.spinner(f"กำลังเชื่อมต่อ Google Sheets และจัดตารางสำหรับเดือน {datetime(year, month, 1).strftime('%B %Y')}..."):
             
-            # --- ส่วนที่เชื่อมต่อและดึงข้อมูลจาก Google Sheets ---
             # 1. สร้างการเชื่อมต่อ (Streamlit จะดึงข้อมูลจาก .streamlit/secrets.toml)
             conn = st.connection("gsheets")
 
             # 2. อ่านข้อมูลจากทุกแท็บที่จำเป็น
-            # ⚠️ สำคัญ: แก้ "YOUR_SPREADSHEET_ID_HERE" เป็น ID ของ Google Sheet ของคุณ
-            # คุณสามารถหา ID ได้จาก URL ของ Sheet: docs.google.com/spreadsheets/d/THIS_IS_THE_ID/edit
-            spreadsheet_id = "1a45tRr3ckxa1lGPIxHnMldL9mgCTV_hZ"# <--- แก้ไขตรงนี้
+            # ⚠️ ID ของ Google Sheet ของคุณ
+            spreadsheet_id = "1a45tRr3ckxa1lGPIxHnMldL9mgCTV_hZ"
 
             st.write("Reading data from Google Sheets...")
 
-            # อ่านทุกชีตที่ต้องการ
+            # === อ่านชีตที่ต้องมี (Required Sheets) ===
             pharmacists_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Pharmacists")
             shifts_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Shifts")
             departments_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Departments")
             pre_assignments_df = conn.read(spreadsheet=spreadsheet_id, worksheet="PreAssignments")
             
-            # ชีตที่ไม่บังคับ (อาจจะไม่มีก็ได้)
+            # === อ่านชีตที่ไม่บังคับ (Optional Sheets) ===
+            # ใช้ try-except เพื่อให้แอปไม่พังถ้าไม่มีชีตเหล่านี้
             try:
                 historical_scores_df = conn.read(spreadsheet=spreadsheet_id, worksheet="HistoricalScores")
             except Exception:
                 historical_scores_df = None
             try:
-                # ต้องระบุ index_col=0 เพื่อให้ชื่อเภสัชกรเป็น index
-                special_notes_df = conn.read(spreadsheet=spreadsheet_id, worksheet="SpecialNotes", usecols=lambda x: x != 'Pharmacist', index_col=0)
+                special_notes_df = conn.read(spreadsheet=spreadsheet_id, worksheet="SpecialNotes")
             except Exception:
                 special_notes_df = None
             try:
                 shift_limits_df = conn.read(spreadsheet=spreadsheet_id, worksheet="ShiftLimits")
             except Exception:
                 shift_limits_df = None
+            try:
+                holiday_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Holiday")
+            except Exception:
+                holiday_df = None
+            try:
+                holiday2_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Holiday 2")
+            except Exception:
+                holiday2_df = None
+            try:
+                prefre_df = conn.read(spreadsheet=spreadsheet_id, worksheet="Prefre")
+            except Exception:
+                prefre_df = None
+
 
             st.success("Successfully read data from Google Sheets!")
 
@@ -1013,6 +1037,9 @@ if generate_button:
                 "historical_scores": historical_scores_df,
                 "special_notes": special_notes_df,
                 "shift_limits": shift_limits_df,
+                "holiday": holiday_df,
+                "holiday2": holiday2_df,
+                "prefre": prefre_df,
             }
 
             # 4. เริ่มต้น Scheduler ด้วยข้อมูลจาก Google Sheets
