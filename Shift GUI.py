@@ -10,93 +10,69 @@ import random
 from statistics import stdev
 from io import BytesIO
 # Library สำหรับเชื่อมต่อ Google Sheets (ไม่จำเป็นต้อง import GSheetsConnection โดยตรง)
-@st.cache_data(ttl=60) # Cache ข้อมูล 1 นาที
-def load_data_from_github(file_path):
-    """โหลดไฟล์ Excel จาก GitHub และคืนค่าเป็น Dictionary ของ DataFrames"""
+@st.cache_data(ttl=60) # Cache data for 60 seconds
+def load_data(worksheet_name):
+    """Loads data from a specific worksheet in Google Sheets."""
     try:
-        repo_name = st.secrets["GITHUB_REPO"]
-        token = st.secrets["GITHUB_TOKEN"]
-        
-        auth = Auth.Token(token)
-
-# 3. ส่ง object นี้เข้าไปใน Github() แทน token โดยตรง
-        g = Github(auth=auth) # <-- แก้ไขเป็นวิธีใหม่
-
-        repo = g.get_repo(repo_name)
-        content_file = repo.get_contents(file_path)
-        
-        # อ่านไฟล์ Excel จาก content ที่ได้มา
-        excel_data = BytesIO(content_file.decoded_content)
-        all_sheets_dict = pd.read_excel(excel_data, sheet_name=None)
-        return all_sheets_dict
+        data = conn.read(worksheet=worksheet_name, usecols=list(range(5)), header=0) # Adjust range as needed
+        # Filter out empty rows
+        data = data.dropna(how="all")
+        return data
     except Exception as e:
-        st.error(f"ไม่สามารถโหลดไฟล์จาก GitHub ได้: {e}")
-        return None
+        st.error(f"Failed to load data from worksheet '{worksheet_name}': {e}")
+        return pd.DataFrame()
 
-def save_data_to_github(file_path, all_sheets_dict, commit_message):
-    """บันทึก Dictionary ของ DataFrames กลับไปยังไฟล์ Excel บน GitHub"""
-    try:
-        repo_name = st.secrets["GITHUB_REPO"]
-        token = st.secrets["GITHUB_TOKEN"]
-        
-        g = Github(token)
-        repo = g.get_repo(repo_name)
-        
-        # แปลง Dict of DFs กลับไปเป็นไฟล์ Excel ใน Memory
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            for sheet_name, df in all_sheets_dict.items():
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-        
-        excel_bytes = output.getvalue()
-        
-        # ดึงข้อมูลไฟล์ปัจจุบันเพื่อเอา SHA
-        contents = repo.get_contents(file_path, ref="main")
-        
-        # อัปเดตไฟล์
-        repo.update_file(contents.path, commit_message, excel_bytes, contents.sha, branch="main")
-        st.success(f"บันทึกข้อมูลไปที่ '{file_path}' เรียบร้อยแล้ว!")
-        return True
-    except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการบันทึกไฟล์: {e}")
-        return False
+# -- Main App --
+st.header("Current Pharmacist Data")
+st.write("This data is being read live from your Google Sheet.")
 
+# Specify the name of the worksheet you want to read from
+WORKSHEET_NAME = "Pharmacists" # ⚠️ Change this to your actual worksheet name
 
-# --- UI หลักของแอป ---
-st.title("👩‍⚕️ Pharmacist Shift Scheduler & Editor")
+df = load_data(WORKSHEET_NAME)
+st.dataframe(df)
 
-# --- ส่วนของการแก้ไขข้อมูล ---
-st.header("📝 Edit Data Source File")
+st.divider()
 
-# ⚠️⚠️⚠️ ระบุ Path ของไฟล์ Excel ใน Repo ของคุณ ⚠️⚠️⚠️
-FILE_PATH_IN_REPO = "YOUR_FILENAME.xlsx" 
+# -- Writing Data Back to the Sheet --
+st.header("Add New Pharmacist")
+st.write("This form will add a new row to your Google Sheet.")
 
-all_sheets = load_data_from_github(FILE_PATH_IN_REPO)
+with st.form("add_pharmacist_form", clear_on_submit=True):
+    name = st.text_input("Name")
+    skills = st.text_input("Skills (e.g., general, opd)")
+    max_hours = st.number_input("Max Hours", min_value=0, max_value=300, value=250)
+    
+    submitted = st.form_submit_button("➕ Add to Sheet")
 
-if all_sheets:
-    # เก็บข้อมูลที่แก้ไขใน session state
-    if 'edited_sheets' not in st.session_state:
-        st.session_state.edited_sheets = all_sheets.copy()
+    if submitted:
+        if not name:
+            st.warning("Please enter a name.")
+        else:
+            try:
+                # Create a new DataFrame for the new row
+                new_row = pd.DataFrame([{
+                    "Name": name, 
+                    "Skills": skills, 
+                    "Max Hours": max_hours,
+                    # Add other columns with default values if necessary
+                    # "Holidays": "", 
+                    # "Rank1": ""
+                }])
+                
+                # Append the new row to the existing data
+                updated_df = pd.concat([df, new_row], ignore_index=True)
+                
+                # Update the entire worksheet
+                conn.update(worksheet=WORKSHEET_NAME, data=updated_df)
+                
+                st.success(f"Successfully added '{name}' to the sheet!")
+                st.cache_data.clear() # Clear the cache to show the new data
+                st.rerun()
 
-    sheet_to_edit = st.selectbox("เลือกชีตที่ต้องการแก้ไข:", list(st.session_state.edited_sheets.keys()))
+            except Exception as e:
+                st.error(f"Failed to add data to the sheet: {e}")
 
-    if sheet_to_edit:
-        st.write(f"คุณกำลังแก้ไขชีต: **{sheet_to_edit}**")
-        
-        # แสดงตารางให้แก้ไข
-        edited_df = st.data_editor(st.session_state.edited_sheets[sheet_to_edit], num_rows="dynamic")
-        
-        # เมื่อมีการแก้ไข ให้เก็บข้อมูลใหม่ลง session_state
-        st.session_state.edited_sheets[sheet_to_edit] = edited_df
-
-        # ปุ่มบันทึกการเปลี่ยนแปลง
-        if st.button("💾 Save Changes to GitHub"):
-            with st.spinner("กำลังบันทึกข้อมูล..."):
-                commit_msg = f"Update {sheet_to_edit} via Streamlit app"
-                if save_data_to_github(FILE_PATH_IN_REPO, st.session_state.edited_sheets, commit_msg):
-                    # เคลียร์ Cache เพื่อให้โหลดข้อมูลใหม่ในครั้งถัดไป
-                    st.cache_data.clear()
-                    st.rerun()
 # =========================================================================
 # ================== PHARMACIST SCHEDULER CLASS (ฉบับปรับปรุง) =============
 # =========================================================================
@@ -1162,6 +1138,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
