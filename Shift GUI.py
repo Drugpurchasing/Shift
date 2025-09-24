@@ -11,68 +11,45 @@ from statistics import stdev
 from io import BytesIO
 from streamlit_gsheets import GSheetsConnection
 # Library สำหรับเชื่อมต่อ Google Sheets (ไม่จำเป็นต้อง import GSheetsConnection โดยตรง)
-@st.cache_data(ttl=60) # Cache data for 60 seconds
+# -- App Configuration --
+st.set_page_config(page_title="Pharmacist Data Manager", layout="centered")
+st.title("👩‍⚕️ Pharmacist Data Manager (Google Sheets)")
+
+# ---------------- CORRECT ORDER ----------------
+# 1. ESTABLISH THE CONNECTION FIRST
+try:
+    conn = st.connection("gsheets", type=GSheetsConnection)
+except Exception as e:
+    st.error("Failed to create Google Sheets connection. Check your secrets.toml file.")
+    st.stop() # Stop the app if connection fails
+
+# 2. DEFINE THE FUNCTION THAT USES THE CONNECTION
+@st.cache_data(ttl=60)
 def load_data(worksheet_name):
-    """Loads data from a specific worksheet in Google Sheets."""
+    """Loads data using the established 'conn' object."""
     try:
-        data = conn.read(worksheet=worksheet_name, usecols=list(range(5)), header=0) # Adjust range as needed
-        # Filter out empty rows
+        data = conn.read(worksheet=worksheet_name, usecols=list(range(5)), header=0)
         data = data.dropna(how="all")
         return data
     except Exception as e:
         st.error(f"Failed to load data from worksheet '{worksheet_name}': {e}")
         return pd.DataFrame()
 
+# -----------------------------------------------
+
 # -- Main App --
 st.header("Current Pharmacist Data")
 st.write("This data is being read live from your Google Sheet.")
 
-# Specify the name of the worksheet you want to read from
 WORKSHEET_NAME = "Pharmacists" # ⚠️ Change this to your actual worksheet name
 
+# 3. NOW, YOU CAN SAFELY CALL THE FUNCTION
 df = load_data(WORKSHEET_NAME)
-st.dataframe(df)
 
-st.divider()
-
-# -- Writing Data Back to the Sheet --
-st.header("Add New Pharmacist")
-st.write("This form will add a new row to your Google Sheet.")
-
-with st.form("add_pharmacist_form", clear_on_submit=True):
-    name = st.text_input("Name")
-    skills = st.text_input("Skills (e.g., general, opd)")
-    max_hours = st.number_input("Max Hours", min_value=0, max_value=300, value=250)
-    
-    submitted = st.form_submit_button("➕ Add to Sheet")
-
-    if submitted:
-        if not name:
-            st.warning("Please enter a name.")
-        else:
-            try:
-                # Create a new DataFrame for the new row
-                new_row = pd.DataFrame([{
-                    "Name": name, 
-                    "Skills": skills, 
-                    "Max Hours": max_hours,
-                    # Add other columns with default values if necessary
-                    # "Holidays": "", 
-                    # "Rank1": ""
-                }])
-                
-                # Append the new row to the existing data
-                updated_df = pd.concat([df, new_row], ignore_index=True)
-                
-                # Update the entire worksheet
-                conn.update(worksheet=WORKSHEET_NAME, data=updated_df)
-                
-                st.success(f"Successfully added '{name}' to the sheet!")
-                st.cache_data.clear() # Clear the cache to show the new data
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"Failed to add data to the sheet: {e}")
+if not df.empty:
+    st.dataframe(df)
+else:
+    st.warning("Could not load data or the worksheet is empty.")
 
 # =========================================================================
 # ================== PHARMACIST SCHEDULER CLASS (ฉบับปรับปรุง) =============
@@ -1139,6 +1116,7 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
 
 
