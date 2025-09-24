@@ -8,8 +8,7 @@ from openpyxl.utils import get_column_letter
 import random
 from statistics import stdev
 from io import BytesIO
-# Library ใหม่สำหรับเชื่อมต่อ Google Sheets
-from streamlit_gsheets import GSheetsConnection
+
 
 # =========================================================================
 # ================== PHARMACIST SCHEDULER CLASS (ฉบับปรับปรุง) =============
@@ -1057,4 +1056,5 @@ if 'best_schedule' in st.session_state:
     
     st.subheader("Generated Schedule Preview")
     st.dataframe(st.session_state['best_schedule'])
+
 
