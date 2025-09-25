@@ -7,16 +7,6 @@ from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 import random
 from statistics import stdev
-import io # Required for in-memory file handling
-import time as time_moduleimport streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta, time
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-from openpyxl.utils import get_column_letter
-import random
-from statistics import stdev
 import io
 
 # --- The PharmacistScheduler Class (with modifications for progress bar and logging) ---
