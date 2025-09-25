@@ -1014,4 +1014,3 @@ if st.session_state.get('results', None):
             with st.expander(f"ตาราง: {sheet_name}"):
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 st.dataframe(df)
-
