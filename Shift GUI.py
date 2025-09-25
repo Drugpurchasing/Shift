@@ -946,7 +946,7 @@ if run_button:
     st.session_state['run_in_progress'] = True
     st.session_state['cancel_run'] = False
     st.session_state['results'] = None
-    st.experimental_rerun() # Rerun to show the cancel button and hide the run button
+    st.rerun()# Rerun to show the cancel button and hide the run button
 
 if st.session_state.get('run_in_progress', False):
     status_container = st.container()
@@ -989,7 +989,7 @@ if st.session_state.get('run_in_progress', False):
             st.error(f"เกิดข้อผิดพลาด: {e}")
         finally:
             st.session_state['run_in_progress'] = False
-            st.experimental_rerun()
+            st.rerun()
 
 # --- Display Results Area ---
 if st.session_state.get('results', None):
@@ -1014,3 +1014,4 @@ if st.session_state.get('results', None):
             with st.expander(f"ตาราง: {sheet_name}"):
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 st.dataframe(df)
+
