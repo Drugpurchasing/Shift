@@ -1319,7 +1319,7 @@ def render_summary_as_html(scheduler, schedule_df):
     custom_css = f"""
     <style>
         .schedule-table table {{
-            table-layout: fixed !important;
+            table-layout: auto !important;
             width: 100% !important;
             border-collapse: collapse;
         }}
@@ -1548,6 +1548,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
