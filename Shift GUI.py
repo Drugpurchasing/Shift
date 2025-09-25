@@ -1334,7 +1334,7 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
         {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
         # <<< CHANGE: เพิ่ม 'width' และ 'min-width' เข้าไปใน selector นี้
         # คุณสามารถปรับแก้ค่า '45px' ได้ตามความต้องการ
-        {'selector': 'td, th', 'props': [('border', '1px solid #ccc'), ('width', '45px'), ('min-width', '45px')]},
+        {'selector': 'td, th', 'props': [('border', '1px solid #ccc'), ('width', '20px'), ('min-width', '20px')]},
     ], overwrite=False)
     
     return styler
@@ -1532,6 +1532,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
