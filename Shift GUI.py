@@ -1107,7 +1107,7 @@ with st.sidebar:
     st.header("⚙️ Configuration")
     
     # --- MODIFICATION: Use a fixed URL instead of file uploader ---
-    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pubhtml"
+    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
     st.info(f"Data will be loaded from a public Google Sheet.")
     st.markdown(f"[Link to data source]({excel_url})")
     
@@ -1191,6 +1191,7 @@ if run_button:
     except Exception as e:
         st.error(f"An unexpected error occurred: {e}")
         st.error("This could be due to a network issue, a change in the Google Sheet's format, or the sheet being unavailable. Please check the link and try again.")
+
 
 
 
