@@ -1238,12 +1238,11 @@ class PharmacistScheduler:
                     scores[pharmacist] = percentage_score
         return scores
 
-# =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (REVISED) ==================
-# =========================================================================
+
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
+    This version is compatible with both Light and Dark themes.
     """
     styles = scheduler._setup_daily_summary_styles()
     
@@ -1263,10 +1262,8 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
     row_types = ['Note', 'Shift 1', 'Shift 2']
     multi_index = pd.MultiIndex.from_product([active_pharmacists, row_types], names=['Pharmacist', ''])
     
-    # Initialize DataFrame with object dtype to hold tuples
     summary_df = pd.DataFrame(index=multi_index, columns=date_cols, dtype=object)
 
-    # Populate the DataFrame with (display_text, style_key) tuples
     for pharmacist in active_pharmacists:
         for date in sorted_dates:
             date_col = date.strftime('%d/%m')
@@ -1292,17 +1289,14 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                     d2 = f"{h2}N" if scheduler.is_night_shift(s2) else str(h2)
                     summary_df.loc[(pharmacist, 'Shift 1'), date_col] = (d2, s2)
     
-
     summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
 
-    # Create a second DataFrame of the same size to hold CSS styles
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
     
     for pharmacist in active_pharmacists:
         for i, date in enumerate(sorted_dates):
             date_col = date_cols[i]
             
-            # Check for personal holiday first
             if summary_df.loc[(pharmacist, 'Shift 2'), date_col][1] == 'OFF':
                 off_style = f"background-color: {styles['off_fill']}; font-weight: bold; text-align: center;"
                 style_df.loc[(pharmacist, 'Note'), date_col] = off_style
@@ -1310,27 +1304,26 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 style_df.loc[(pharmacist, 'Shift 2'), date_col] = off_style
                 continue
 
-            # Apply individual cell styling if not a personal holiday
             for row_type in row_types:
                 display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
                 
-                bg_color = 'white'
-                font_color = 'black'
+                # Default background is transparent for theme compatibility
+                bg_color = 'transparent'
+                font_color = 'inherit' # Inherit theme's font color
                 font_weight = 'normal'
-                is_weekend_or_holiday = date.weekday() >= 5 or scheduler.is_holiday(date)
 
                 if style_key and style_key != 'NOTE': # It's a shift
                     prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
                     if prefix:
                         bg_color = styles['fills'][prefix]
-                        font_color = styles['fonts'].get(prefix, 'black')
+                        # Use the theme's font color unless specified otherwise (e.g., white on dark blue)
+                        font_color = styles['fonts'].get(prefix, 'inherit')
                         font_weight = 'bold'
-                elif not display_text and is_weekend_or_holiday: # Empty cell on special day
-                    bg_color = styles['holiday_empty_fill']
+                
+                # NOTE: The logic for yellow empty cells on holidays has been removed as requested.
 
                 style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center;"
 
-    # Apply the styles and formatting
     styler = summary_df.style.apply(lambda x: style_df, axis=None)
     styler.format(lambda val: val[0] if isinstance(val, tuple) else val)
     styler.set_table_styles([
@@ -1535,6 +1528,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
