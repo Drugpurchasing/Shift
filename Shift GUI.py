@@ -300,11 +300,9 @@ class PharmacistScheduler:
     def get_night_shift_count(self, pharmacist):
         return self.pharmacists[pharmacist]['night_shift_count']
 
-# วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
     def get_preference_score(self, pharmacist, shift_type):
         department = self.get_department_from_shift(shift_type)
         for rank in range(1, 9):
-            # ใช้ .get() เพื่อป้องกัน Error หากไม่มีข้อมูล preferences
             if self.pharmacists[pharmacist].get('preferences', {}).get(f'rank{rank}') == department:
                 return rank
         return 9
@@ -652,7 +650,6 @@ class PharmacistScheduler:
         border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
         ws.cell(row=1, column=1, value='Date').fill = header_fill
         
-        # Ensure schedule columns match self.shift_types to avoid KeyError
         schedule_columns = [col for col in self.shift_types if col in schedule.columns]
 
         for col, shift_type in enumerate(schedule_columns, 2):
@@ -687,40 +684,6 @@ class PharmacistScheduler:
         wb.save(buffer)
         buffer.seek(0)
         return buffer
-
-    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
-    def create_preference_score_summary(self, ws, schedule):
-        header_fill = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
-        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-        bold_font = Font(bold=True)
-        headers = ["Pharmacist", "Preference Score (%)", "Total Shifts Worked"]
-        for col, header_text in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=header_text)
-            cell.fill, cell.font, cell.border = header_fill, bold_font, border
-        
-        try:
-            preference_scores = self.calculate_pharmacist_preference_scores(schedule)
-            pharmacist_list = sorted(self.pharmacists.keys())
-    
-            for row_idx, pharmacist in enumerate(pharmacist_list, 2):
-                total_shifts = 0
-                if pharmacist in schedule.values:
-                    # ใช้วิธีนับที่ปลอดภัยและเร็วกว่า
-                    total_shifts = (schedule == pharmacist).sum().sum()
-    
-                score = preference_scores.get(pharmacist, 0)
-                
-                ws.cell(row=row_idx, column=1, value=pharmacist).border = border
-                score_cell = ws.cell(row=row_idx, column=2, value=score)
-                score_cell.border = border
-                score_cell.number_format = '0.00"%"'
-                ws.cell(row=row_idx, column=3, value=total_shifts).border = border
-    
-        except Exception as e:
-            # หากเกิดข้อผิดพลาดขึ้น จะไม่ทำให้โปรแกรมล่ม แต่จะแจ้ง Error ในชีท Excel แทน
-            ws.cell(row=2, column=1, value=f"Error generating preference summary: {e}")
-    
-        ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 30, 25, 25
 
     def create_negotiation_summary(self, ws, schedule):
         header_fill = PatternFill(start_color='FF4F81BD', end_color='FF4F81BD', fill_type='solid')
@@ -888,7 +851,7 @@ class PharmacistScheduler:
                             prefix = next((p for p in styles['fills'] if shift.strip().startswith(p)), None)
                             if prefix:
                                 fill_color = styles['fills'][prefix]
-                                cell2.fill, cell2.font = fill_color, styles['fonts'].get(prefix, Font(bold=True))
+                                cell2.fill, cell2.font = fill_color, styles['fonts'].get(prefix, styles['fonts']['default'])
                                 if len(shifts) == 1: cell1.fill = fill_color
                     
                     if len(shifts) > 1:
@@ -896,7 +859,7 @@ class PharmacistScheduler:
                         cell1.value = process_excel_shift(shift)
                         if cell1.value != "":
                             prefix = next((p for p in styles['fills'] if shift.strip().startswith(p)), None)
-                            if prefix: cell1.fill, cell1.font = styles['fills'][prefix], styles['fonts'].get(prefix, Font(bold=True))
+                            if prefix: cell1.fill, cell1.font = styles['fonts'].get(prefix, styles['fonts']['default'])
 
                     if is_public_holiday_or_weekend and not shifts:
                         if cell1.value is None: cell1.fill = styles['holiday_empty_fill']
@@ -1035,6 +998,37 @@ class PharmacistScheduler:
         for col in range(2, len(schedule.index) + 2):
             ws.column_dimensions[get_column_letter(col)].width = 15
 
+    def create_preference_score_summary(self, ws, schedule):
+        header_fill = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
+        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        bold_font = Font(bold=True)
+        headers = ["Pharmacist", "Preference Score (%)", "Total Shifts Worked"]
+        for col, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header_text)
+            cell.fill, cell.font, cell.border = header_fill, bold_font, border
+        
+        try:
+            preference_scores = self.calculate_pharmacist_preference_scores(schedule)
+            pharmacist_list = sorted(self.pharmacists.keys())
+
+            for row_idx, pharmacist in enumerate(pharmacist_list, 2):
+                total_shifts = 0
+                if pharmacist in schedule.values:
+                    total_shifts = (schedule == pharmacist).sum().sum()
+
+                score = preference_scores.get(pharmacist, 0)
+                
+                ws.cell(row=row_idx, column=1, value=pharmacist).border = border
+                score_cell = ws.cell(row=row_idx, column=2, value=score)
+                score_cell.border = border
+                score_cell.number_format = '0.00"%"'
+                ws.cell(row=row_idx, column=3, value=total_shifts).border = border
+
+        except Exception as e:
+            ws.cell(row=2, column=1, value=f"Error generating preference summary: {e}")
+
+        ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 30, 25, 25
+
     def calculate_pharmacist_preference_scores(self, schedule):
         scores = {}
         MAX_POINTS_PER_SHIFT = 8
@@ -1118,11 +1112,18 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
     summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
     
+    # Re-map styles from openpyxl objects to CSS-friendly strings for Streamlit
+    css_styles = {
+        'header_fill': '#' + styles_info['header_fill'].replace('#',''),
+        'off_fill': '#' + styles_info['off_fill'].replace('#',''),
+        'fills': {p: '#' + c.replace('#','') for p, c in styles_info['fills'].items()}
+    }
+
     for pharmacist in active_pharmacists:
         for i, date in enumerate(sorted_dates):
             date_col = date_cols[i]
             if summary_df.loc[(pharmacist, 'Shift 2'), date_col][1] == 'OFF':
-                off_style = f"background-color: {styles['off_fill']['start_color']}; font-weight: bold; text-align: center;"
+                off_style = f"background-color: {css_styles['off_fill']}; font-weight: bold; text-align: center;"
                 style_df.loc[(pharmacist, 'Note'), date_col] = off_style
                 style_df.loc[(pharmacist, 'Shift 1'), date_col] = off_style
                 style_df.loc[(pharmacist, 'Shift 2'), date_col] = off_style
@@ -1132,16 +1133,21 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
                 bg_color = 'transparent'
                 font_weight = 'normal'
+                font_color = 'inherit' # Default to theme color
                 css_properties = []
 
                 if style_key and style_key != 'NOTE':
-                    prefix = next((p for p in styles['fills'] if str(style_key).strip().startswith(p)), None)
+                    prefix = next((p for p in css_styles['fills'] if str(style_key).strip().startswith(p)), None)
                     if prefix:
-                        bg_color = '#' + styles['fills'][prefix].start_color
+                        bg_color = css_styles['fills'][prefix]
                         font_weight = 'bold'
+                        # Check if this prefix requires a special font color (for dark backgrounds)
+                        if prefix in ['O400F1', 'ARI']:
+                            font_color = 'white'
                 
                 css_properties.append(f"background-color: {bg_color};")
                 css_properties.append(f"font-weight: {font_weight};")
+                css_properties.append(f"color: {font_color};")
                 css_properties.append("text-align: center;")
                 css_properties.append("white-space: pre-wrap;")
                 
@@ -1149,10 +1155,9 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
 
     styler = summary_df.style.apply(lambda x: style_df, axis=None).format(lambda val: val[0] if isinstance(val, tuple) else val)
     
-    header_fill_color = '#' + styles['header_fill'].start_color
     styler.set_table_styles([
-        {'selector': 'thead th', 'props': [('background-color', header_fill_color), ('font-weight', 'bold')]},
-        {'selector': 'th.row_heading', 'props': [('background-color', header_fill_color), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
+        {'selector': 'thead th', 'props': [('background-color', css_styles['header_fill']), ('font-weight', 'bold')]},
+        {'selector': 'th.row_heading', 'props': [('background-color', css_styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
         {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
         {'selector': 'td, th', 'props': 'border: 1px solid #ccc;'},
     ], overwrite=False)
@@ -1351,8 +1356,3 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
-
-
-
-
-
