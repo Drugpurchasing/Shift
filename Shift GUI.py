@@ -966,7 +966,7 @@ st.title("⚕️ โปรแกรมจัดตารางเวรเภส
 with st.sidebar:
     st.header("⚙️ ตั้งค่าการทำงาน")
     
-    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwlFKiinzL_gyIKn7YZNDSj4gLfzcuuYL8lfBlKCMPkYMhN2HASaam4scgsjs0Hg/pub?output=xlsx"
+    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
     st.info("โปรแกรมจะดึงข้อมูลจาก Google Sheet โดยอัตโนมัติ")
     
     mode = st.radio(
@@ -1067,3 +1067,4 @@ if run_button:
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error("อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
+
