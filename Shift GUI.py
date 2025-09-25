@@ -9,12 +9,8 @@ import random
 from statistics import stdev
 import io # Required for in-memory file handling
 
-# --- The PharmacistScheduler Class (with minor modifications) ---
-# I have kept your core logic almost entirely the same.
-# Changes:
-# 1. __init__ now accepts a logger function (e.g., st.info).
-# 2. generate_... methods now accept a progress_bar object.
-# 3. export_to_excel now returns an in-memory byte buffer instead of saving to a file path.
+# --- The PharmacistScheduler Class (Unchanged from the previous version) ---
+# The core logic remains the same as pandas can read directly from a URL.
 
 class PharmacistScheduler:
     """
@@ -83,7 +79,8 @@ class PharmacistScheduler:
     def load_historical_scores(self):
         try:
             self.logger("Attempting to load historical scores from sheet 'HistoricalScores'...")
-            df = pd.read_excel(self.excel_file_path, sheet_name='HistoricalScores')
+            # Reading from a URL or file path works the same way
+            df = pd.read_excel(self.excel_file_path, sheet_name='HistoricalScores', engine='openpyxl')
             if 'Pharmacist' in df.columns and 'Total Preference Score' in df.columns:
                 for _, row in df.iterrows():
                     pharmacist = row['Pharmacist']
@@ -93,10 +90,10 @@ class PharmacistScheduler:
                 self.logger(f"Successfully loaded historical scores for {len(self.historical_scores)} pharmacists.")
             else:
                 self.logger("WARNING: 'HistoricalScores' sheet found, but required columns ('Pharmacist', 'Total Preference Score') are missing.")
-        except ValueError:
-            self.logger("INFO: Sheet 'HistoricalScores' not found in the input file. Proceeding without historical data.")
         except Exception as e:
-            self.logger(f"An error occurred while loading historical scores: {e}")
+             # More specific error handling for URL fetching might be needed in a production app
+            self.logger(f"INFO: Could not load 'HistoricalScores' sheet. It may not exist or there might be a network issue. Proceeding without it. Error: {e}")
+
 
     def _calculate_preference_multipliers(self):
         if not self.historical_scores:
@@ -120,8 +117,9 @@ class PharmacistScheduler:
                 self.preference_multipliers[pharmacist] = min_multiplier
                 self.logger(f"Pharmacist '{pharmacist}' not in historical data. Assigning a favorable multiplier of {min_multiplier}.")
 
-    def read_data_from_excel(self, file_path):
-        pharmacists_df = pd.read_excel(file_path, sheet_name='Pharmacists')
+    def read_data_from_excel(self, file_path_or_url):
+        # Using engine='openpyxl' is good practice when reading xlsx files with pandas
+        pharmacists_df = pd.read_excel(file_path_or_url, sheet_name='Pharmacists', engine='openpyxl')
         self.pharmacists = {}
         for _, row in pharmacists_df.iterrows():
             name = row['Name']
@@ -132,13 +130,13 @@ class PharmacistScheduler:
                 max_hours = float(max_hours)
             self.pharmacists[name] = {
                 'night_shift_count': 0,
-                'skills': row['Skills'].split(','),
+                'skills': str(row['Skills']).split(','),
                 'holidays': [date for date in str(row['Holidays']).split(',') if date != '1900-01-00' and date.strip() and date != 'nan'],
                 'shift_counts': {},
                 'preferences': {f'rank{i}': row[f'Rank{i}'] for i in range(1, 9)},
                 'max_hours': max_hours
             }
-        shifts_df = pd.read_excel(file_path, sheet_name='Shifts')
+        shifts_df = pd.read_excel(file_path_or_url, sheet_name='Shifts', engine='openpyxl')
         self.shift_types = {}
         for _, row in shifts_df.iterrows():
             shift_code = row['Shift Code']
@@ -148,15 +146,16 @@ class PharmacistScheduler:
                 'start_time': row['Start Time'],
                 'end_time': row['End Time'],
                 'hours': row['Hours'],
-                'required_skills': row['Required Skills'].split(','),
-                'restricted_next_shifts': row['Restricted Next Shifts'].split(',') if pd.notna(row['Restricted Next Shifts']) else [],
+                'required_skills': str(row['Required Skills']).split(','),
+                'restricted_next_shifts': str(row['Restricted Next Shifts']).split(',') if pd.notna(row['Restricted Next Shifts']) else [],
             }
-        departments_df = pd.read_excel(file_path, sheet_name='Departments')
+        departments_df = pd.read_excel(file_path_or_url, sheet_name='Departments', engine='openpyxl')
         self.departments = {}
         for _, row in departments_df.iterrows():
             department = row['Department']
-            self.departments[department] = row['Shift Codes'].split(',')
-        pre_assign_df = pd.read_excel(file_path, sheet_name='PreAssignments')
+            self.departments[department] = str(row['Shift Codes']).split(',')
+            
+        pre_assign_df = pd.read_excel(file_path_or_url, sheet_name='PreAssignments', engine='openpyxl')
         pre_assign_df['Date'] = pd.to_datetime(pre_assign_df['Date']).dt.strftime('%Y-%m-%d')
         self.pre_assignments = {}
         for pharmacist, group in pre_assign_df.groupby('Pharmacist'):
@@ -170,7 +169,7 @@ class PharmacistScheduler:
 
         try:
             self.logger("Attempting to load special notes from sheet 'SpecialNotes'...")
-            notes_df = pd.read_excel(file_path, sheet_name='SpecialNotes', index_col=0)
+            notes_df = pd.read_excel(file_path_or_url, sheet_name='SpecialNotes', index_col=0, engine='openpyxl')
             for pharmacist, row_data in notes_df.iterrows():
                 if pharmacist in self.pharmacists:
                     for date_col, note in row_data.items():
@@ -180,14 +179,12 @@ class PharmacistScheduler:
                                 self.special_notes[pharmacist] = {}
                             self.special_notes[pharmacist][date_str] = str(note).strip()
             self.logger(f"Successfully loaded {sum(len(d) for d in self.special_notes.values())} special notes.")
-        except ValueError:
-            self.logger("INFO: Sheet 'SpecialNotes' not found. Proceeding without special notes.")
         except Exception as e:
-            self.logger(f"An error occurred while loading special notes: {e}")
+            self.logger(f"INFO: Could not load 'SpecialNotes' sheet. It may not exist. Error: {e}")
 
         try:
             self.logger("Attempting to load shift limits from sheet 'ShiftLimits'...")
-            limits_df = pd.read_excel(file_path, sheet_name='ShiftLimits')
+            limits_df = pd.read_excel(file_path_or_url, sheet_name='ShiftLimits', engine='openpyxl')
             for _, row in limits_df.iterrows():
                 pharmacist = row['Pharmacist']
                 category = row['ShiftCategory']
@@ -197,14 +194,12 @@ class PharmacistScheduler:
                         self.shift_limits[pharmacist] = {}
                     self.shift_limits[pharmacist][category] = int(max_count)
             self.logger(f"Successfully loaded {len(limits_df)} shift limit rules.")
-        except ValueError:
-            self.logger("INFO: Sheet 'ShiftLimits' not found. Proceeding without shift limits.")
         except Exception as e:
-            self.logger(f"An error occurred while loading shift limits: {e}")
-
-    # ... [All your other class methods like convert_time_to_minutes, check_time_overlap, etc., go here unchanged] ...
-    # For brevity, I am omitting the unchanged methods. Copy them from your original script into this space.
-    # START of unchanged methods to be copied
+            self.logger(f"INFO: Could not load 'ShiftLimits' sheet. It may not exist. Error: {e}")
+    
+    # ... [All other methods from your class go here, they do not need to be changed] ...
+    # --- For brevity, I am omitting the rest of the class methods ---
+    # --- Just copy them from the previous answer ---
     def convert_time_to_minutes(self, time_input):
         if isinstance(time_input, str):
             hours, minutes = map(int, time_input.split(':'))
@@ -379,8 +374,6 @@ class PharmacistScheduler:
         else:
             metrics['hour_diff_for_logging'] = 0
         return metrics
-    # END of unchanged methods to be copied
-
     def generate_monthly_schedule_shuffled(self, year, month, progress_bar, shuffled_shifts=None, shuffled_pharmacists=None, iteration_num=1):
         start_date = datetime(year, month, 1)
         end_date = datetime(year + 1, 1, 1) - timedelta(days=1) if month == 12 else datetime(year, month + 1, 1) - timedelta(days=1)
@@ -470,8 +463,6 @@ class PharmacistScheduler:
         final_schedule.fillna('NO SHIFT', inplace=True)
         return final_schedule, unfilled_info
 
-    # ... [All your other class methods here, again omitting for brevity] ...
-    # START of more unchanged methods to be copied
     def _update_shift_counts(self, pharmacist, shift_type):
         if self.is_night_shift(shift_type):
             self.pharmacists[pharmacist]['night_shift_count'] += 1
@@ -577,8 +568,6 @@ class PharmacistScheduler:
         current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
         return current_score < best_score
-    # END of more unchanged methods to be copied
-
     def optimize_schedule(self, year, month, iterations, progress_bar):
         best_schedule = None
         best_metrics = {'unfilled_problem_shifts': float('inf'), 'hour_imbalance_penalty': float('inf'), 'night_variance': float('inf'), 'preference_score': float('inf')}
@@ -646,16 +635,10 @@ class PharmacistScheduler:
         self.create_daily_summary_with_codes(ws_daily_codes, schedule)
         self.create_negotiation_summary(ws_negotiate, schedule)
 
-        # Save to an in-memory buffer
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
         return buffer
-
-    # ... [All the `create_..._summary` methods and other specific-date methods go here unchanged] ...
-    # Make sure to copy ALL the remaining methods from your original script into this space.
-    # For brevity, I am omitting them here.
-    # START of final block of unchanged methods to be copied
     def create_negotiation_summary(self, ws, schedule):
         header_fill = PatternFill(start_color='FF4F81BD', end_color='FF4F81BD', fill_type='solid')
         border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
@@ -1113,8 +1096,7 @@ class PharmacistScheduler:
         else:
             self.logger("\nOptimization failed to find any valid schedule.")
         return best_schedule, best_unfilled_info
-    # END of final block of unchanged methods
-    
+        
 # --- Streamlit UI and Main Execution Logic ---
 
 st.set_page_config(layout="wide")
@@ -1124,12 +1106,11 @@ st.title("⚕️ Pharmacist Shift Scheduler")
 with st.sidebar:
     st.header("⚙️ Configuration")
     
-    uploaded_file = st.file_uploader(
-        "Upload your schedule definition file",
-        type=['xlsx'],
-        help="Please upload the 'pharmacist_schedule.xlsx' file with all the required sheets."
-    )
-
+    # --- MODIFICATION: Use a fixed URL instead of file uploader ---
+    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwlFKiinzL_gyIKn7YZNDSj4gLfzcuuYL8lfBlKCMPkYMhN2HASaam4scgsjs0Hg/pub?output=xlsx"
+    st.info(f"Data will be loaded from a public Google Sheet.")
+    st.markdown(f"[Link to data source]({excel_url})")
+    
     mode = st.radio(
         "Select Scheduling Mode",
         ("Full Month", "Specific Dates"),
@@ -1160,22 +1141,23 @@ with st.sidebar:
         help="More iterations can lead to a better schedule but will take longer."
     )
 
-    run_button = st.button("Generate Schedule", type="primary", use_container_width=True, disabled=(uploaded_file is None))
+    # --- MODIFICATION: Button is always enabled ---
+    run_button = st.button("Generate Schedule", type="primary", use_container_width=True)
 
 # --- Main Area for Output ---
-if uploaded_file and run_button:
-    with st.spinner('Initializing scheduler and reading data...'):
-        # Pass the logger function st.info to the class
-        scheduler = PharmacistScheduler(uploaded_file, logger=st.info)
-    
-    st.success("Scheduler initialized successfully.")
-
-    progress_bar = st.progress(0, text="Starting optimization...")
-    
-    best_schedule = None
-    best_unfilled_info = None
-
+if run_button:
     try:
+        with st.spinner('Initializing scheduler and reading data from Google Sheets...'):
+            # --- MODIFICATION: Pass the URL to the scheduler ---
+            scheduler = PharmacistScheduler(excel_url, logger=st.info)
+        
+        st.success("Scheduler initialized successfully.")
+
+        progress_bar = st.progress(0, text="Starting optimization...")
+        
+        best_schedule = None
+        best_unfilled_info = None
+
         if mode == "Full Month":
             best_schedule, best_unfilled_info = scheduler.optimize_schedule(year, month, iterations, progress_bar)
         else: # Specific Dates
@@ -1189,7 +1171,6 @@ if uploaded_file and run_button:
         if best_schedule is not None:
             st.success("✅ A valid schedule was generated!")
             
-            # Use the modified export function to get the file buffer
             excel_buffer = scheduler.export_to_excel(best_schedule, best_unfilled_info)
             
             output_filename = f"Pharmacist_Schedule_{year}_{month}.xlsx" if mode == "Full Month" else "Pharmacist_Schedule_Custom_Dates.xlsx"
@@ -1208,14 +1189,8 @@ if uploaded_file and run_button:
             st.error("❌ Could not generate a valid schedule after all iterations. Please check your constraints or increase iterations.")
 
     except Exception as e:
-        st.error(f"An unexpected error occurred during schedule generation: {e}")
-
-elif not uploaded_file and run_button:
-     st.warning("Please upload the Excel file before generating the schedule.")
-
-
-
-
+        st.error(f"An unexpected error occurred: {e}")
+        st.error("This could be due to a network issue, a change in the Google Sheet's format, or the sheet being unavailable. Please check the link and try again.")
 
 
 
