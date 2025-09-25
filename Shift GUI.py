@@ -300,10 +300,12 @@ class PharmacistScheduler:
     def get_night_shift_count(self, pharmacist):
         return self.pharmacists[pharmacist]['night_shift_count']
 
+        # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
     def get_preference_score(self, pharmacist, shift_type):
         department = self.get_department_from_shift(shift_type)
         for rank in range(1, 9):
-            if self.pharmacists[pharmacist]['preferences'][f'rank{rank}'] == department:
+            # ใช้ .get() เพื่อป้องกัน Error หากไม่มีข้อมูล preferences
+            if self.pharmacists[pharmacist].get('preferences', {}).get(f'rank{rank}') == department:
                 return rank
         return 9
 
@@ -577,7 +579,39 @@ class PharmacistScheduler:
         current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
         return current_score < best_score
+    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
+    def create_preference_score_summary(self, ws, schedule):
+        header_fill = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
+        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        bold_font = Font(bold=True)
+        headers = ["Pharmacist", "Preference Score (%)", "Total Shifts Worked"]
+        for col, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header_text)
+            cell.fill, cell.font, cell.border = header_fill, bold_font, border
+        
+        try:
+            preference_scores = self.calculate_pharmacist_preference_scores(schedule)
+            pharmacist_list = sorted(self.pharmacists.keys())
+    
+            for row_idx, pharmacist in enumerate(pharmacist_list, 2):
+                total_shifts = 0
+                if pharmacist in schedule.values:
+                    # ใช้วิธีนับที่ปลอดภัยและเร็วกว่า
+                    total_shifts = (schedule == pharmacist).sum().sum()
+    
+                score = preference_scores.get(pharmacist, 0)
+                
+                ws.cell(row=row_idx, column=1, value=pharmacist).border = border
+                score_cell = ws.cell(row=row_idx, column=2, value=score)
+                score_cell.border = border
+                score_cell.number_format = '0.00"%"'
+                ws.cell(row=row_idx, column=3, value=total_shifts).border = border
+    
+        except Exception as e:
+            # หากเกิดข้อผิดพลาดขึ้น จะไม่ทำให้โปรแกรมล่ม แต่จะแจ้ง Error ในชีท Excel แทน
+            ws.cell(row=2, column=1, value=f"Error generating preference summary: {e}")
 
+    ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 30, 25, 25
     def optimize_schedule(self, year, month, iterations=10, progress_bar=None, status_text=None, log_placeholder=None):
         best_schedule = None
         best_metrics = {'unfilled_problem_shifts': float('inf'), 'hour_imbalance_penalty': float('inf'), 'night_variance': float('inf'), 'preference_score': float('inf')}
@@ -1315,6 +1349,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
