@@ -300,10 +300,12 @@ class PharmacistScheduler:
     def get_night_shift_count(self, pharmacist):
         return self.pharmacists[pharmacist]['night_shift_count']
 
+# วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
     def get_preference_score(self, pharmacist, shift_type):
         department = self.get_department_from_shift(shift_type)
         for rank in range(1, 9):
-            if self.pharmacists[pharmacist]['preferences'][f'rank{rank}'] == department:
+            # ใช้ .get() เพื่อป้องกัน Error หากไม่มีข้อมูล preferences
+            if self.pharmacists[pharmacist].get('preferences', {}).get(f'rank{rank}') == department:
                 return rank
         return 9
 
@@ -1315,6 +1317,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
