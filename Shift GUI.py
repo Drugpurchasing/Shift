@@ -1242,12 +1242,6 @@ class PharmacistScheduler:
 # =========================================================================
 # ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
-# =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
-# =========================================================================
-# =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
-# =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
@@ -1288,8 +1282,8 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                         hours = int(scheduler.shift_types[shift_code]['hours'])
                         display = str(hours)
                         return (display, shift_code)
-                    except KeyError:
-                        # !! CHANGE: If code not found, display becomes an empty string
+                    # !! CHANGE: Catches ALL possible errors to ensure no code is ever displayed
+                    except (KeyError, ValueError, TypeError):
                         return ('', shift_code)
 
                 if len(shifts) >= 1:
@@ -1321,7 +1315,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                     if prefix:
                         bg_color = styles['fills'][prefix]
                         font_weight = 'bold'
-                        # !! CHANGE: Removed all specific font color logic
                 
                 css_properties.append(f"background-color: {bg_color};")
                 css_properties.append(f"font-weight: {font_weight};")
@@ -1534,6 +1527,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
