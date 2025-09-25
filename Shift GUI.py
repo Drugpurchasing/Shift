@@ -688,6 +688,40 @@ class PharmacistScheduler:
         buffer.seek(0)
         return buffer
 
+    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
+    def create_preference_score_summary(self, ws, schedule):
+        header_fill = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
+        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        bold_font = Font(bold=True)
+        headers = ["Pharmacist", "Preference Score (%)", "Total Shifts Worked"]
+        for col, header_text in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header_text)
+            cell.fill, cell.font, cell.border = header_fill, bold_font, border
+        
+        try:
+            preference_scores = self.calculate_pharmacist_preference_scores(schedule)
+            pharmacist_list = sorted(self.pharmacists.keys())
+    
+            for row_idx, pharmacist in enumerate(pharmacist_list, 2):
+                total_shifts = 0
+                if pharmacist in schedule.values:
+                    # ใช้วิธีนับที่ปลอดภัยและเร็วกว่า
+                    total_shifts = (schedule == pharmacist).sum().sum()
+    
+                score = preference_scores.get(pharmacist, 0)
+                
+                ws.cell(row=row_idx, column=1, value=pharmacist).border = border
+                score_cell = ws.cell(row=row_idx, column=2, value=score)
+                score_cell.border = border
+                score_cell.number_format = '0.00"%"'
+                ws.cell(row=row_idx, column=3, value=total_shifts).border = border
+    
+        except Exception as e:
+            # หากเกิดข้อผิดพลาดขึ้น จะไม่ทำให้โปรแกรมล่ม แต่จะแจ้ง Error ในชีท Excel แทน
+            ws.cell(row=2, column=1, value=f"Error generating preference summary: {e}")
+    
+        ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 30, 25, 25
+
     def create_negotiation_summary(self, ws, schedule):
         header_fill = PatternFill(start_color='FF4F81BD', end_color='FF4F81BD', fill_type='solid')
         border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
@@ -1317,6 +1351,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
