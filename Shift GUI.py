@@ -1249,9 +1249,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     styles = scheduler._setup_daily_summary_styles()
     
-    # <<< CHANGE: The SHIFT_CODES_TO_HIDE set has been removed as it was
-    # causing the numbers for many shifts to be hidden.
-
     ordered_pharmacists = [
         "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
         "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
@@ -1282,9 +1279,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
                 
                 def process_shift(shift_code):
-                    # <<< CHANGE: The conditional block that was hiding shift codes based on
-                    # SHIFT_CODES_TO_HIDE has been removed.
-                    
                     try:
                         hours = int(scheduler.shift_types[shift_code]['hours'])
                         if scheduler.is_night_shift(shift_code):
@@ -1293,7 +1287,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                             display = str(hours)
                         return (display, shift_code)
                     except Exception:
-                        # Fallback in case of an error with a shift code
                         return ('', shift_code)
 
                 if len(shifts) >= 1:
@@ -1339,7 +1332,9 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
         {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold')]},
         {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
         {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
-        {'selector': 'td, th', 'props': 'border: 1px solid #ccc;'},
+        # <<< CHANGE: เพิ่ม 'width' และ 'min-width' เข้าไปใน selector นี้
+        # คุณสามารถปรับแก้ค่า '45px' ได้ตามความต้องการ
+        {'selector': 'td, th', 'props': [('border', '1px solid #ccc'), ('width', '45px'), ('min-width', '45px')]},
     ], overwrite=False)
     
     return styler
@@ -1537,6 +1532,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
