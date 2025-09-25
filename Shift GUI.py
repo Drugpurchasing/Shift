@@ -383,7 +383,7 @@ st.title("⚕️ Pharmacist Shift Scheduler")
 with st.sidebar:
     st.header("⚙️ ตั้งค่าการจัดตาราง")
     
-    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwlFKiinzL_gyIKn7YZNDSj4gLfzcuuYL8lfBlKCMPkYMhN2HASaam4scgsjs0Hg/pub?output=xlsx"
+    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
     st.info("ใช้ข้อมูลจาก Google Sheet")
     
     mode = st.radio("เลือกโหมด", ("จัดทั้งเดือน", "จัดเฉพาะวันที่เลือก"))
@@ -486,6 +486,7 @@ if st.session_state.data_loaded:
             st.dataframe(best_schedule)
         else:
             st.error("❌ ไม่สามารถสร้างตารางเวรที่สมบูรณ์ได้ กรุณาตรวจสอบข้อจำกัดต่างๆ หรือลองเพิ่มจำนวนรอบ Optimization")
+
 
 
 
