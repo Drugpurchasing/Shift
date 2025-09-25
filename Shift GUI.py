@@ -1242,25 +1242,13 @@ class PharmacistScheduler:
 # =========================================================================
 # ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
-# =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
-# =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
-    Restores X, N, and Notes, while specifically hiding a predefined list of shift codes.
-    This version adds .strip() to handle hidden whitespace in data.
+    This version uses a robust try/except block to automatically show valid shifts
+    and hide any invalid or malformed shift codes without needing a manual list.
     """
     styles = scheduler._setup_daily_summary_styles()
-    
-    SHIFT_CODES_TO_HIDE = {
-        'I100-4', 'I100-6', 'I100-10', 'I100-6W', 'I100-8W', 'I100-12D', 'I100-12N',
-        'O100-4/1', 'O100-4/2', 'O100-6', 'O100-8W', 'O100-10W', 'Care', 'C8S', 
-        'C8/1', 'C8/2', 'I400-4', 'I400-6', 'I400-10', 'I400-8W', 'I400-10W', 
-        'I400-12D', 'I400-12N', 'O400F1-4/1', 'O400F1-4/2', 'O400F1-8/1', 
-        'O400F1-8/2', 'O400F2-4/1', 'O400F2-4/2', 'O400F2-6', 'O400F2-8/1', 
-        'O400F2-8/2', 'O400F2-8/3', 'O400ER-6', 'O400ER-10', 'O400ER-12D', 'O400ER-12N'
-    }
 
     ordered_pharmacists = [
         "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
@@ -1292,21 +1280,23 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 
                 def process_shift(shift_code):
                     # !!! จุดแก้ไขสำคัญ !!!
-                    # แปลงเป็น string และ .strip() เพื่อตัดช่องว่างที่มองไม่เห็นออกก่อน
-                    sanitized_code = str(shift_code).strip()
-                    
-                    if sanitized_code in SHIFT_CODES_TO_HIDE:
-                        return ('', sanitized_code)
-                    
+                    # ยกเลิกการใช้ SHIFT_CODES_TO_HIDE และกลับมาใช้ try/except ที่แม่นยำกว่า
                     try:
+                        # 1. ตัดช่องว่างที่มองไม่เห็นออกก่อน
+                        sanitized_code = str(shift_code).strip()
+                        
+                        # 2. ลองค้นหาข้อมูลและแปลงเป็นตัวเลข ถ้าสำเร็จ แสดงว่าเวรถูกต้อง
                         hours = int(scheduler.shift_types[sanitized_code]['hours'])
+                        
+                        # 3. แสดงผลตามปกติ (มี N สำหรับเวรดึก)
                         if scheduler.is_night_shift(sanitized_code):
                             display = f"{hours}N"
                         else:
                             display = str(hours)
                         return (display, sanitized_code)
                     except Exception:
-                        return ('', sanitized_code)
+                        # 4. ถ้าขั้นตอนใดๆ ข้างบนล้มเหลว แสดงว่าเป็นเวรที่ไม่ถูกต้อง -> ให้เป็นค่าว่าง
+                        return ('', str(shift_code).strip())
 
                 if len(shifts) >= 1:
                     summary_df.loc[(pharmacist, 'Shift 2'), date_col] = process_shift(shifts[0])
@@ -1549,6 +1539,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
