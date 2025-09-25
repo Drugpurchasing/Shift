@@ -23,6 +23,7 @@ class PharmacistScheduler:
 
     def __init__(self, excel_file_path, logger=print):
         self.logger = logger
+        self.excel_file_path = excel_file_path
         self.pharmacists = {}
         self.shift_types = {}
         self.departments = {}
@@ -31,26 +32,54 @@ class PharmacistScheduler:
         self.preference_multipliers = {}
         self.special_notes = {}
         self.shift_limits = {}
-        self.excel_file_path = excel_file_path
         self.problem_days = set()
-
-        self.read_data_from_excel(self.excel_file_path)
-        self.load_historical_scores()
-        self._calculate_preference_multipliers()
-
         self.night_shifts = {
             'I100-10', 'I100-12N', 'I400-12N', 'I400-10', 'O400ER-12N', 'O400ER-10'
         }
         self.holidays = {
-            'specific_dates': ['2025-10-13','2025-10-23']
+            'specific_dates': ['2025-10-13', '2025-10-23']
         }
+
+    def load_data_with_progress(self, progress_callback):
+        """Loads all data from the Excel source sequentially and reports progress."""
+        total_steps = 7  # Number of sheets to load
+        
+        # Step 1: Pharmacists
+        self._load_pharmacists()
+        progress_callback(1 / total_steps, "กำลังโหลดข้อมูล: เภสัชกร...")
+        
+        # Step 2: Shifts
+        self._load_shifts()
+        progress_callback(2 / total_steps, "กำลังโหลดข้อมูล: ประเภทเวร...")
+        
+        # Step 3: Departments
+        self._load_departments()
+        progress_callback(3 / total_steps, "กำลังโหลดข้อมูล: แผนก...")
+
+        # Step 4: Pre-Assignments
+        self._load_pre_assignments()
+        progress_callback(4 / total_steps, "กำลังโหลดข้อมูล: เวรที่กำหนดล่วงหน้า...")
+
+        # Step 5: Special Notes
+        self._load_special_notes()
+        progress_callback(5 / total_steps, "กำลังโหลดข้อมูล: หมายเหตุพิเศษ...")
+
+        # Step 6: Shift Limits
+        self._load_shift_limits()
+        progress_callback(6 / total_steps, "กำลังโหลดข้อมูล: ข้อจำกัดเวร...")
+
+        # Step 7: Historical Scores and final setup
+        self.load_historical_scores()
+        self._calculate_preference_multipliers()
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['shift_counts'] = {
                 shift_type: 0 for shift_type in self.shift_types
             }
+        progress_callback(7 / total_steps, "โหลดข้อมูลเสร็จสิ้น! ✅")
+
 
     def _pre_check_staffing_levels(self, year, month):
-        self.logger("\nRunning pre-check for staffing levels (including all shifts + 3 buffer)...")
+        self.logger("\nตรวจสอบจำนวนบุคลากร...")
         start_date = datetime(year, month, 1)
         end_date = datetime(year, month + 1, 1) - timedelta(days=1) if month < 12 else datetime(year, 12, 31)
         dates = pd.date_range(start_date, end_date)
@@ -66,20 +95,16 @@ class PharmacistScheduler:
             if available_pharmacists_count < total_required_shifts_with_buffer:
                 all_ok = False
                 self.problem_days.add(date)
-                self.logger(f"WARNING: Potential shortage on {date.strftime('%Y-%m-%d')}. "
-                      f"Available Pharmacists: {available_pharmacists_count}, "
-                      f"Required Shifts (with +3 buffer): {total_required_shifts_with_buffer}")
-        if all_ok:
-            self.logger("Pre-check complete. All days have sufficient staffing levels for the total workload.")
-        else:
-            self.logger("Pre-check complete. Identified days with potential staff shortages. These will be prioritized.")
+                self.logger(f"⚠️ คำเตือน: อาจขาดแคลนบุคลากรวันที่ {date.strftime('%Y-%m-%d')}. "
+                      f"มีเภสัชกร {available_pharmacists_count} คน, "
+                      f"ต้องการ {total_required_shifts_with_buffer} คน (รวมสำรอง)")
+        if not all_ok:
+            self.logger("ตรวจพบบางวันที่มีความเสี่ยงขาดบุคลากร จะให้ความสำคัญกับวันดังกล่าวเป็นพิเศษ")
         return not all_ok
 
 
     def load_historical_scores(self):
         try:
-            self.logger("Attempting to load historical scores from sheet 'HistoricalScores'...")
-            # Reading from a URL or file path works the same way
             df = pd.read_excel(self.excel_file_path, sheet_name='HistoricalScores', engine='openpyxl')
             if 'Pharmacist' in df.columns and 'Total Preference Score' in df.columns:
                 for _, row in df.iterrows():
@@ -87,17 +112,14 @@ class PharmacistScheduler:
                     score = row['Total Preference Score']
                     if pharmacist in self.pharmacists:
                         self.historical_scores[pharmacist] = score
-                self.logger(f"Successfully loaded historical scores for {len(self.historical_scores)} pharmacists.")
             else:
-                self.logger("WARNING: 'HistoricalScores' sheet found, but required columns ('Pharmacist', 'Total Preference Score') are missing.")
-        except Exception as e:
-             # More specific error handling for URL fetching might be needed in a production app
-            self.logger(f"INFO: Could not load 'HistoricalScores' sheet. It may not exist or there might be a network issue. Proceeding without it. Error: {e}")
+                self.logger("INFO: ชีท 'HistoricalScores' ไม่มีคอลัมน์ที่ต้องการ")
+        except Exception:
+            self.logger("INFO: ไม่พบชีท 'HistoricalScores' จะดำเนินการต่อโดยไม่มีข้อมูลส่วนนี้")
 
 
     def _calculate_preference_multipliers(self):
         if not self.historical_scores:
-            self.logger("No historical scores found. All preference multipliers will be 1.0.")
             for pharmacist in self.pharmacists:
                 self.preference_multipliers[pharmacist] = 1.0
             return
@@ -115,11 +137,10 @@ class PharmacistScheduler:
             if pharmacist not in self.preference_multipliers:
                 min_multiplier = 0.7
                 self.preference_multipliers[pharmacist] = min_multiplier
-                self.logger(f"Pharmacist '{pharmacist}' not in historical data. Assigning a favorable multiplier of {min_multiplier}.")
 
-    def read_data_from_excel(self, file_path_or_url):
-        # Using engine='openpyxl' is good practice when reading xlsx files with pandas
-        pharmacists_df = pd.read_excel(file_path_or_url, sheet_name='Pharmacists', engine='openpyxl')
+    # --- Data Loading split into individual functions ---
+    def _load_pharmacists(self):
+        pharmacists_df = pd.read_excel(self.excel_file_path, sheet_name='Pharmacists', engine='openpyxl')
         self.pharmacists = {}
         for _, row in pharmacists_df.iterrows():
             name = row['Name']
@@ -136,7 +157,9 @@ class PharmacistScheduler:
                 'preferences': {f'rank{i}': row[f'Rank{i}'] for i in range(1, 9)},
                 'max_hours': max_hours
             }
-        shifts_df = pd.read_excel(file_path_or_url, sheet_name='Shifts', engine='openpyxl')
+
+    def _load_shifts(self):
+        shifts_df = pd.read_excel(self.excel_file_path, sheet_name='Shifts', engine='openpyxl')
         self.shift_types = {}
         for _, row in shifts_df.iterrows():
             shift_code = row['Shift Code']
@@ -149,13 +172,16 @@ class PharmacistScheduler:
                 'required_skills': str(row['Required Skills']).split(','),
                 'restricted_next_shifts': str(row['Restricted Next Shifts']).split(',') if pd.notna(row['Restricted Next Shifts']) else [],
             }
-        departments_df = pd.read_excel(file_path_or_url, sheet_name='Departments', engine='openpyxl')
+
+    def _load_departments(self):
+        departments_df = pd.read_excel(self.excel_file_path, sheet_name='Departments', engine='openpyxl')
         self.departments = {}
         for _, row in departments_df.iterrows():
             department = row['Department']
             self.departments[department] = str(row['Shift Codes']).split(',')
             
-        pre_assign_df = pd.read_excel(file_path_or_url, sheet_name='PreAssignments', engine='openpyxl')
+    def _load_pre_assignments(self):
+        pre_assign_df = pd.read_excel(self.excel_file_path, sheet_name='PreAssignments', engine='openpyxl')
         pre_assign_df['Date'] = pd.to_datetime(pre_assign_df['Date']).dt.strftime('%Y-%m-%d')
         self.pre_assignments = {}
         for pharmacist, group in pre_assign_df.groupby('Pharmacist'):
@@ -167,9 +193,9 @@ class PharmacistScheduler:
                 date_dict[date] = shifts
             self.pre_assignments[pharmacist] = date_dict
 
+    def _load_special_notes(self):
         try:
-            self.logger("Attempting to load special notes from sheet 'SpecialNotes'...")
-            notes_df = pd.read_excel(file_path_or_url, sheet_name='SpecialNotes', index_col=0, engine='openpyxl')
+            notes_df = pd.read_excel(self.excel_file_path, sheet_name='SpecialNotes', index_col=0, engine='openpyxl')
             for pharmacist, row_data in notes_df.iterrows():
                 if pharmacist in self.pharmacists:
                     for date_col, note in row_data.items():
@@ -178,13 +204,12 @@ class PharmacistScheduler:
                             if pharmacist not in self.special_notes:
                                 self.special_notes[pharmacist] = {}
                             self.special_notes[pharmacist][date_str] = str(note).strip()
-            self.logger(f"Successfully loaded {sum(len(d) for d in self.special_notes.values())} special notes.")
-        except Exception as e:
-            self.logger(f"INFO: Could not load 'SpecialNotes' sheet. It may not exist. Error: {e}")
+        except Exception:
+             pass # Silently fail if sheet doesn't exist
 
+    def _load_shift_limits(self):
         try:
-            self.logger("Attempting to load shift limits from sheet 'ShiftLimits'...")
-            limits_df = pd.read_excel(file_path_or_url, sheet_name='ShiftLimits', engine='openpyxl')
+            limits_df = pd.read_excel(self.excel_file_path, sheet_name='ShiftLimits', engine='openpyxl')
             for _, row in limits_df.iterrows():
                 pharmacist = row['Pharmacist']
                 category = row['ShiftCategory']
@@ -193,9 +218,8 @@ class PharmacistScheduler:
                     if pharmacist not in self.shift_limits:
                         self.shift_limits[pharmacist] = {}
                     self.shift_limits[pharmacist][category] = int(max_count)
-            self.logger(f"Successfully loaded {len(limits_df)} shift limit rules.")
-        except Exception as e:
-            self.logger(f"INFO: Could not load 'ShiftLimits' sheet. It may not exist. Error: {e}")
+        except Exception:
+            pass # Silently fail if sheet doesn't exist
     
     # ... [All other methods from your class go here, they do not need to be changed] ...
     # --- For brevity, I am omitting the rest of the class methods ---
@@ -423,7 +447,7 @@ class PharmacistScheduler:
         total_dates = len(processing_order_dates)
         for i, date in enumerate(processing_order_dates):
             if progress_bar:
-                progress_text = f"Iteration {iteration_num}: Building schedule for {date.strftime('%Y-%m-%d')}"
+                progress_text = f"รอบที่ {iteration_num}: กำลังจัดเวรวันที่ {date.strftime('%d-%m-%Y')}"
                 progress_bar.progress((i + 1) / total_dates, text=progress_text)
 
             pharmacists_working_yesterday = set()
@@ -456,7 +480,6 @@ class PharmacistScheduler:
                         unfilled_info['other_days'].append((date, shift_type))
                         final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
                         final_schedule.fillna('NO SHIFT', inplace=True)
-                        self.logger(f"\nINFO: Iteration {iteration_num} failed due to unfilled shift '{shift_type}' on non-problem day {date.strftime('%Y-%m-%d')}.")
                         return final_schedule, unfilled_info
         final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
         final_schedule = final_schedule.reindex(columns=list(self.shift_types.keys()), fill_value='NO SHIFT')
@@ -536,7 +559,6 @@ class PharmacistScheduler:
                     candidates_off_tomorrow.append(p_data)
 
             if candidates_off_tomorrow:
-                self.logger(f"INFO: Prioritizing night shift on {date.strftime('%Y-%m-%d')} for pharmacists off on problem day {problem_day_str}.")
                 return min(candidates_off_tomorrow, key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
 
         if self.is_night_shift(shift_type):
@@ -568,36 +590,33 @@ class PharmacistScheduler:
         current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
         return current_score < best_score
+        
     def optimize_schedule(self, year, month, iterations, progress_bar):
         best_schedule = None
         best_metrics = {'unfilled_problem_shifts': float('inf'), 'hour_imbalance_penalty': float('inf'), 'night_variance': float('inf'), 'preference_score': float('inf')}
         best_unfilled_info = {}
         self._pre_check_staffing_levels(year, month)
-        self.logger(f"\nStarting optimization with {iterations} iterations...")
+        self.logger(f"\n⏳ เริ่มการจัดตารางเวรอัตโนมัติ {iterations} รอบ...")
         for i in range(iterations):
-            self.logger(f"\n--- Iteration {i+1}/{iterations} ---")
             current_schedule, unfilled_info = self.generate_monthly_schedule_shuffled(year, month, progress_bar, iteration_num=i+1)
-            if unfilled_info['other_days']: continue
+            if unfilled_info['other_days']: continue # Skip failed schedules
+            
             metrics = self.calculate_schedule_metrics(current_schedule, year, month)
             metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days'])
-            self.logger(f"Iteration Results -> "
-                  f"Unfilled Shifts (Problem Days): {metrics['unfilled_problem_shifts']} | "
-                  f"Hour SD: {metrics.get('hour_diff_for_logging', 0):.2f} | "
-                  f"Night Var: {metrics.get('night_variance', 0):.2f} | "
-                  f"Pref Penalty: {metrics.get('preference_score', 0):.1f}")
+
             if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
                 best_schedule = current_schedule.copy()
                 best_metrics = metrics.copy()
                 best_unfilled_info = unfilled_info.copy()
-                self.logger("*** Found a more balanced schedule! ***")
+                self.logger(f"รอบที่ {i+1}: ⭐ พบตารางเวรที่ดีกว่าเดิม!")
+        
         if best_schedule is not None:
-            self.logger("\nOptimization complete!\nFinal metrics for the best schedule found:")
-            self.logger(f"Unfilled Shifts (Problem Days): {best_metrics.get('unfilled_problem_shifts', 0)} | "
-                  f"Hour SD: {best_metrics.get('hour_diff_for_logging', 0):.2f} | "
-                  f"Night Var: {best_metrics.get('night_variance', 0):.2f} | "
-                  f"Pref Penalty: {best_metrics.get('preference_score', 0):.1f}")
+            self.logger("\n🎉 จัดตารางเวรเสร็จสมบูรณ์!")
+            self.logger(f"สรุปผล: เวรที่จัดไม่ได้ {best_metrics.get('unfilled_problem_shifts', 0)} | "
+                  f"ความต่าง ชม. (SD): {best_metrics.get('hour_diff_for_logging', 0):.2f} | "
+                  f"ความต่างเวรดึก (Var): {best_metrics.get('night_variance', 0):.2f}")
         else:
-            self.logger("\nOptimization failed to find any valid schedule.")
+            self.logger("\n❌ ไม่สามารถจัดตารางเวรที่สมบูรณ์ได้")
         return best_schedule, best_unfilled_info
 
     def export_to_excel(self, schedule, unfilled_info):
@@ -934,7 +953,7 @@ class PharmacistScheduler:
         return scores
 
     def _pre_check_staffing_for_dates(self, dates_to_schedule):
-        self.logger("\nRunning pre-check for staffing levels for specific dates...")
+        self.logger("\nตรวจสอบจำนวนบุคลากรสำหรับวันที่เลือก...")
         all_ok = True
         for date in dates_to_schedule:
             available_pharmacists_count = sum(1 for p_name, p_info in self.pharmacists.items()
@@ -946,13 +965,11 @@ class PharmacistScheduler:
             if available_pharmacists_count < total_required_shifts_with_buffer:
                 all_ok = False
                 self.problem_days.add(date)
-                self.logger(f"WARNING: Potential shortage on {date.strftime('%Y-%m-%d')}. "
-                      f"Available Pharmacists: {available_pharmacists_count}, "
-                      f"Required Shifts (with +3 buffer): {total_required_shifts_with_buffer}")
-        if all_ok:
-            self.logger("Pre-check complete. All specified dates have sufficient staffing levels.")
-        else:
-            self.logger("Pre-check complete. Identified specified dates with potential staff shortages.")
+                self.logger(f"⚠️ คำเตือน: อาจขาดแคลนบุคลากรวันที่ {date.strftime('%Y-%m-%d')}. "
+                      f"มีเภสัชกร {available_pharmacists_count}, "
+                      f"ต้องการ {total_required_shifts_with_buffer} (รวมสำรอง)")
+        if not all_ok:
+            self.logger("ตรวจพบบางวันที่มีความเสี่ยงขาดบุคลากร จะให้ความสำคัญเป็นพิเศษ")
         return not all_ok
 
     def calculate_weekend_off_variance_for_dates(self, schedule):
@@ -1027,10 +1044,12 @@ class PharmacistScheduler:
         total_dates = len(processing_order_dates)
         for i, date in enumerate(processing_order_dates):
             if progress_bar:
-                progress_text = f"Iteration {iteration_num}: Building schedule for {date.strftime('%Y-%m-%d')}"
+                progress_text = f"รอบที่ {iteration_num}: กำลังจัดเวรวันที่ {date.strftime('%d-%m-%Y')}"
                 progress_bar.progress((i + 1) / total_dates, text=progress_text)
 
             previous_date = date - timedelta(days=1)
+            # This logic for consecutive days is simplified for date-range and might not be perfect
+            # if the range is non-contiguous, but works for contiguous ranges.
             if previous_date in schedule_dict:
                 pharmacists_working_yesterday = {p for p in schedule_dict[previous_date].values() if p in self.pharmacists}
                 for p_name in self.pharmacists:
@@ -1071,31 +1090,92 @@ class PharmacistScheduler:
         best_metrics = {'unfilled_problem_shifts': float('inf'), 'preference_score': float('inf')}
         best_unfilled_info = {}
         self._pre_check_staffing_for_dates(dates_to_schedule)
-        self.logger(f"\nStarting optimization for {len(dates_to_schedule)} specific dates with {iterations} iterations...")
+        self.logger(f"\n⏳ เริ่มการจัดตารางเวรสำหรับ {len(dates_to_schedule)} วันที่เลือก ({iterations} รอบ)...")
         for i in range(iterations):
-            self.logger(f"\n--- Iteration {i+1}/{iterations} ---")
             current_schedule, unfilled_info = self.generate_schedule_for_dates(dates_to_schedule, progress_bar, iteration_num=i+1)
             metrics = self.calculate_metrics_for_schedule(current_schedule)
             metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days']) + len(unfilled_info['other_days'])
-            self.logger(f"Iteration Results -> "
-                  f"Unfilled Shifts: {metrics['unfilled_problem_shifts']} | "
-                  f"Hour SD: {metrics.get('hour_diff_for_logging', 0):.2f} | "
-                  f"Night Var: {metrics.get('night_variance', 0):.2f} | "
-                  f"Pref Penalty: {metrics.get('preference_score', 0):.1f}")
+            
             if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
                 best_schedule = current_schedule.copy()
                 best_metrics = metrics.copy()
                 best_unfilled_info = unfilled_info.copy()
-                self.logger("*** Found a more balanced schedule! ***")
+                self.logger(f"รอบที่ {i+1}: ⭐ พบตารางเวรที่ดีกว่าเดิม!")
+
         if best_schedule is not None:
-            self.logger("\nOptimization complete!\nFinal metrics for the best schedule found:")
-            self.logger(f"Unfilled Shifts: {best_metrics.get('unfilled_problem_shifts', 0)} | "
-                  f"Hour SD: {best_metrics.get('hour_diff_for_logging', 0):.2f} | "
-                  f"Night Var: {best_metrics.get('night_variance', 0):.2f} | "
-                  f"Pref Penalty: {best_metrics.get('preference_score', 0):.1f}")
+            self.logger("\n🎉 จัดตารางเวรเสร็จสมบูรณ์!")
+            self.logger(f"สรุปผล: เวรที่จัดไม่ได้ {best_metrics.get('unfilled_problem_shifts', 0)} | "
+                  f"ความต่าง ชม. (SD): {best_metrics.get('hour_diff_for_logging', 0):.2f} | "
+                  f"ความต่างเวรดึก (Var): {best_metrics.get('night_variance', 0):.2f}")
         else:
-            self.logger("\nOptimization failed to find any valid schedule.")
+            self.logger("\n❌ ไม่สามารถจัดตารางเวรที่สมบูรณ์ได้")
         return best_schedule, best_unfilled_info
+
+    # --- NEW METHODS FOR STREAMLIT UI DISPLAY ---
+    def generate_preference_df(self, schedule):
+        pref_scores = self.calculate_pharmacist_preference_scores(schedule)
+        data = []
+        for p in sorted(self.pharmacists.keys()):
+            total_shifts = sum((schedule == p).sum())
+            score = pref_scores.get(p, 0)
+            data.append({
+                "Pharmacist": p,
+                "Preference Score (%)": f"{score:.2f}%",
+                "Total Shifts Worked": total_shifts
+            })
+        return pd.DataFrame(data)
+
+    def generate_negotiation_df(self, schedule):
+        data = []
+        unfilled_shifts = []
+        for date in schedule.index:
+            for shift_type, assigned_pharm in schedule.loc[date].items():
+                if assigned_pharm == 'UNFILLED':
+                    unfilled_shifts.append((date, shift_type))
+        
+        if not unfilled_shifts:
+            return pd.DataFrame([{"Status": "No unfilled shifts found."}])
+
+        for date, shift_type in unfilled_shifts:
+            required_skills = self.shift_types[shift_type].get('required_skills', [])
+            all_candidates = []
+            for p_name, p_info in self.pharmacists.items():
+                if not all(skill.strip() in p_info['skills'] for skill in required_skills if skill.strip()): continue
+                if len(self.get_pharmacist_shifts(p_name, date, schedule)) > 0: continue
+                is_on_holiday = date.strftime('%Y-%m-%d') in p_info['holidays']
+                pharmacist_data = {
+                    'name': p_name,
+                    'preference_score': self.get_preference_score(p_name, shift_type),
+                    'consecutive_days': self.count_consecutive_shifts(p_name, date, schedule),
+                    'current_hours': self.calculate_total_hours(p_name, schedule),
+                }
+                suitability_score = self._calculate_suitability_score(pharmacist_data)
+                all_candidates.append({'name': p_name, 'is_on_holiday': is_on_holiday, 'score': suitability_score})
+            
+            sorted_candidates = sorted(all_candidates, key=lambda x: (x['is_on_holiday'], x['score']))
+            suggestions_text = []
+            for i, cand in enumerate(sorted_candidates[:5]): # Show top 5
+                status = " (ลา)" if cand['is_on_holiday'] else ""
+                suggestions_text.append(f"{i+1}. {cand['name']}{status}")
+            
+            data.append({
+                "Date": date.strftime('%Y-%m-%d'),
+                "Unfilled Shift": shift_type,
+                "Suggested Candidates": "\n".join(suggestions_text) if suggestions_text else "No suitable candidates"
+            })
+        return pd.DataFrame(data)
+
+    def generate_summary_df(self, schedule):
+        pharmacist_list = sorted(self.pharmacists.keys())
+        hours = {p: self.calculate_total_hours(p, schedule) for p in pharmacist_list}
+        night_counts = {p: self.pharmacists[p]['night_shift_count'] for p in pharmacist_list}
+        
+        summary_data = {
+            "Pharmacist": pharmacist_list,
+            "Total Hours": [hours[p] for p in pharmacist_list],
+            "Night Shifts": [night_counts[p] for p in pharmacist_list]
+        }
+        return pd.DataFrame(summary_data)
         
 # --- Streamlit UI and Main Execution Logic ---
 
@@ -1104,28 +1184,28 @@ st.title("⚕️ Pharmacist Shift Scheduler")
 
 # --- Sidebar for Inputs ---
 with st.sidebar:
-    st.header("⚙️ Configuration")
+    st.header("⚙️ ตั้งค่าการจัดตารางเวร")
     
     # --- MODIFICATION: Use a fixed URL instead of file uploader ---
-    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwlFKiinzL_gyIKn7YZNDSj4gLfzcuuYL8lfBlKCMPkYMhN2HASaam4scgsjs0Hg/pub?output=xlsx"
-    st.info(f"Data will be loaded from a public Google Sheet.")
-    st.markdown(f"[Link to data source]({excel_url})")
+    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
+    st.info(f"จะทำการโหลดข้อมูลจาก Google Sheet")
+    st.markdown(f"[เปิดไฟล์ข้อมูล]({excel_url})")
     
     mode = st.radio(
-        "Select Scheduling Mode",
-        ("Full Month", "Specific Dates"),
-        help="Choose to schedule a complete month or a custom set of dates."
+        "เลือกรูปแบบการจัดเวร",
+        ("จัดทั้งเดือน (Full Month)", "จัดเฉพาะวันที่เลือก (Specific Dates)"),
+        help="เลือกเพื่อจัดตารางเวรทั้งเดือน หรือเลือกช่วงวันที่ที่ต้องการ"
     )
 
     # --- Mode-specific inputs ---
-    if mode == "Full Month":
+    if mode == "จัดทั้งเดือน (Full Month)":
         current_date = datetime.now()
-        year = st.number_input("Year", min_value=2020, max_value=2050, value=current_date.year)
-        month = st.number_input("Month", min_value=1, max_value=12, value=current_date.month)
+        year = st.number_input("ปี (ค.ศ.)", min_value=2020, max_value=2050, value=current_date.year)
+        month = st.number_input("เดือน", min_value=1, max_value=12, value=current_date.month)
         dates_to_schedule = []
     else: # Specific Dates
         date_range = st.date_input(
-            "Select date range to schedule",
+            "เลือกช่วงวันที่ที่ต้องการจัดเวร",
             value=(datetime(2025, 10, 13), datetime(2025, 10, 15)),
             min_value=datetime(2020, 1, 1)
         )
@@ -1136,59 +1216,92 @@ with st.sidebar:
         year, month = 0, 0 # Not used in this mode
 
     iterations = st.slider(
-        "Optimization Iterations",
+        "จำนวนรอบการประมวลผล",
         min_value=1, max_value=500, value=10,
-        help="More iterations can lead to a better schedule but will take longer."
+        help="ยิ่งจำนวนรอบมาก อาจจะได้ผลลัพธ์ที่ดีขึ้น แต่จะใช้เวลาประมวลผลนานขึ้น"
     )
 
-    # --- MODIFICATION: Button is always enabled ---
-    run_button = st.button("Generate Schedule", type="primary", use_container_width=True)
+    run_button = st.button("จัดตารางเวร", type="primary", use_container_width=True)
 
 # --- Main Area for Output ---
 if run_button:
-    try:
-        with st.spinner('Initializing scheduler and reading data from Google Sheets...'):
-            # --- MODIFICATION: Pass the URL to the scheduler ---
-            scheduler = PharmacistScheduler(excel_url, logger=st.info)
-        
-        st.success("Scheduler initialized successfully.")
+    # --- Container for logs ---
+    log_container = st.expander("แสดง Log การทำงาน", expanded=True)
+    
+    def streamlit_logger(message):
+        log_container.info(message)
 
-        progress_bar = st.progress(0, text="Starting optimization...")
+    try:
+        # --- Progress bar for data loading ---
+        load_progress_bar = st.progress(0, text="กำลังเตรียมข้อมูล...")
+
+        def progress_callback(fraction, text):
+            load_progress_bar.progress(fraction, text=text)
+
+        scheduler = PharmacistScheduler(excel_url, logger=streamlit_logger)
+        scheduler.load_data_with_progress(progress_callback)
+        time.sleep(1) # a short pause to let user see the final message
+        load_progress_bar.empty()
+        
+        # --- Progress bar for optimization ---
+        opt_progress_bar = st.progress(0, text="กำลังเริ่มจัดตารางเวร...")
         
         best_schedule = None
         best_unfilled_info = None
 
-        if mode == "Full Month":
-            best_schedule, best_unfilled_info = scheduler.optimize_schedule(year, month, iterations, progress_bar)
+        if mode == "จัดทั้งเดือน (Full Month)":
+            best_schedule, best_unfilled_info = scheduler.optimize_schedule(year, month, iterations, opt_progress_bar)
         else: # Specific Dates
             if not dates_to_schedule:
-                st.error("Please select a valid date range for 'Specific Dates' mode.")
+                st.error("กรุณาเลือกช่วงวันที่ที่ถูกต้องในโหมด 'Specific Dates'")
             else:
-                 best_schedule, best_unfilled_info = scheduler.optimize_schedule_for_dates(dates_to_schedule, iterations, progress_bar)
+                best_schedule, best_unfilled_info = scheduler.optimize_schedule_for_dates(dates_to_schedule, iterations, opt_progress_bar)
 
-        progress_bar.progress(1.0, text="Optimization Complete!")
+        opt_progress_bar.progress(1.0, text="จัดตารางเวรเสร็จสิ้น!")
 
         if best_schedule is not None:
-            st.success("✅ A valid schedule was generated!")
+            st.success("✅ สร้างตารางเวรสำเร็จ!")
             
             excel_buffer = scheduler.export_to_excel(best_schedule, best_unfilled_info)
             
-            output_filename = f"Pharmacist_Schedule_{year}_{month}.xlsx" if mode == "Full Month" else "Pharmacist_Schedule_Custom_Dates.xlsx"
+            output_filename = f"Pharmacist_Schedule_{year}_{month}.xlsx" if mode == "จัดทั้งเดือน (Full Month)" else "Pharmacist_Schedule_Custom_Dates.xlsx"
             
             st.download_button(
-                label="📥 Download Schedule as Excel",
+                label="📥 ดาวน์โหลดตารางเวร (Excel)",
                 data=excel_buffer,
                 file_name=output_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
             
-            st.subheader("Schedule Preview")
-            st.dataframe(best_schedule)
+            st.markdown("---")
+            st.subheader("ดูผลลัพธ์ตารางเวร")
+
+            # --- Generate DataFrames for UI display ---
+            pref_df = scheduler.generate_preference_df(best_schedule)
+            negotiation_df = scheduler.generate_negotiation_df(best_schedule)
+            summary_df = scheduler.generate_summary_df(best_schedule)
+            
+            # --- Display results in tabs ---
+            tab1, tab2, tab3, tab4 = st.tabs(["ตารางเวรหลัก (Monthly Schedule)", "สรุปภาพรวม (Summary)", "คะแนนความพึงพอใจ (Preference)", "ข้อเสนอแนะ (Negotiation)"])
+
+            with tab1:
+                st.dataframe(best_schedule)
+            
+            with tab2:
+                st.dataframe(summary_df)
+
+            with tab3:
+                st.dataframe(pref_df)
+                
+            with tab4:
+                st.dataframe(negotiation_df)
+
         else:
-            st.error("❌ Could not generate a valid schedule after all iterations. Please check your constraints or increase iterations.")
+            st.error("❌ ไม่สามารถสร้างตารางเวรที่เหมาะสมได้ กรุณาตรวจสอบข้อจำกัดต่างๆ หรือเพิ่มจำนวนรอบการประมวลผล")
 
     except Exception as e:
-        st.error(f"An unexpected error occurred: {e}")
-        st.error("This could be due to a network issue, a change in the Google Sheet's format, or the sheet being unavailable. Please check the link and try again.")
+        st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
+        st.error("อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนแปลง, หรือไฟล์ไม่พร้อมใช้งาน กรุณาตรวจสอบลิงก์และลองใหม่อีกครั้ง")
+
 
