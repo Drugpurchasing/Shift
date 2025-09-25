@@ -1344,7 +1344,7 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
         
         # กำหนดความกว้างและเส้นขอบของ "ทุกเซลล์ข้อมูล" (td)
         # คุณสามารถปรับแก้ค่า '45px' ตรงนี้ได้ตามต้องการ
-        {'selector': 'td', 'props': [('border', '1px solid #ccc'), ('width', '45px')]}
+        {'selector': 'td', 'props': [('border', '1px solid #ccc'), ('width', '20px')]}
     ], overwrite=True) # <<< CHANGE: เปลี่ยนเป็น True เพื่อให้สไตล์ใหม่ทับของเก่าทั้งหมด
     
     return styler
@@ -1542,6 +1542,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
