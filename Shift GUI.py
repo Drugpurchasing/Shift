@@ -1240,24 +1240,17 @@ class PharmacistScheduler:
 
 
 # =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
+# ================== STREAMLIT HELPER FUNCTION (REVISED) ==================
 # =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
-    Restores X, N, and Notes, while specifically hiding a predefined list of shift codes.
+    Displays hours for shifts, 'N' for night shifts, 'X' for holidays, and special notes.
     """
     styles = scheduler._setup_daily_summary_styles()
     
-    # !!! NEW: Set of specific shift codes to hide from the display
-    SHIFT_CODES_TO_HIDE = {
-        'I100-4', 'I100-6', 'I100-10', 'I100-6W', 'I100-8W', 'I100-12D', 'I100-12N',
-        'O100-4/1', 'O100-4/2', 'O100-6', 'O100-8W', 'O100-10W', 'Care', 'C8S', 
-        'C8/1', 'C8/2', 'I400-4', 'I400-6', 'I400-10', 'I400-8W', 'I400-10W', 
-        'I400-12D', 'I400-12N', 'O400F1-4/1', 'O400F1-4/2', 'O400F1-8/1', 
-        'O400F1-8/2', 'O400F2-4/1', 'O400F2-4/2', 'O400F2-6', 'O400F2-8/1', 
-        'O400F2-8/2', 'O400F2-8/3', 'O400ER-6', 'O400ER-10', 'O400ER-12D', 'O400ER-12N'
-    }
+    # <<< CHANGE: The SHIFT_CODES_TO_HIDE set has been removed as it was
+    # causing the numbers for many shifts to be hidden.
 
     ordered_pharmacists = [
         "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
@@ -1281,22 +1274,18 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
             date_col = date.strftime('%d/%m'); date_str_ymd = date.strftime('%Y-%m-%d')
             shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
             
-            # CHANGE 1: นำการแสดงผล Note กลับมา
             note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, '')
             
-            # CHANGE 2: นำการแสดงผล 'X' สำหรับวันลากลับมา
             if date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']:
                 summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('X', 'OFF')
             else:
                 if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
                 
                 def process_shift(shift_code):
-                    # CHANGE 3: ตรวจสอบก่อนว่าโค้ดอยู่ในลิสต์ที่ต้องซ่อนหรือไม่
-                    if shift_code in SHIFT_CODES_TO_HIDE:
-                        return ('', shift_code)
+                    # <<< CHANGE: The conditional block that was hiding shift codes based on
+                    # SHIFT_CODES_TO_HIDE has been removed.
                     
                     try:
-                        # CHANGE 4: นำ Logic การแสดงผล N สำหรับเวรดึกกลับมา
                         hours = int(scheduler.shift_types[shift_code]['hours'])
                         if scheduler.is_night_shift(shift_code):
                             display = f"{hours}N"
@@ -1304,7 +1293,7 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                             display = str(hours)
                         return (display, shift_code)
                     except Exception:
-                        # ถ้าเกิด Error อื่นๆ ก็ยังคงซ่อนเหมือนเดิม
+                        # Fallback in case of an error with a shift code
                         return ('', shift_code)
 
                 if len(shifts) >= 1:
@@ -1331,7 +1320,6 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 font_weight = 'normal'
                 css_properties = []
 
-                # ตรวจสอบ style_key ก่อน เพื่อป้องกัน error หากค่าเป็น None หรือค่าว่าง
                 if style_key and style_key != 'NOTE':
                     prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
                     if prefix:
@@ -1549,5 +1537,6 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
