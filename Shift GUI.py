@@ -1239,10 +1239,13 @@ class PharmacistScheduler:
         return scores
 
 
+# =========================================================================
+# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
+# =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
-    This version is compatible with both Light and Dark themes.
+    Handles non-standard shift codes gracefully and is compatible with themes.
     """
     styles = scheduler._setup_daily_summary_styles()
     
@@ -1261,42 +1264,39 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
     
     row_types = ['Note', 'Shift 1', 'Shift 2']
     multi_index = pd.MultiIndex.from_product([active_pharmacists, row_types], names=['Pharmacist', ''])
-    
     summary_df = pd.DataFrame(index=multi_index, columns=date_cols, dtype=object)
 
     for pharmacist in active_pharmacists:
         for date in sorted_dates:
-            date_col = date.strftime('%d/%m')
-            date_str_ymd = date.strftime('%Y-%m-%d')
-            
+            date_col = date.strftime('%d/%m'); date_str_ymd = date.strftime('%Y-%m-%d')
             shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
             note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, '')
-            is_personal_holiday = date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']
-
-            if is_personal_holiday:
+            
+            if date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']:
                 summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('X', 'OFF')
             else:
-                if note:
-                    summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
+                if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
+                
+                # Function to safely process a shift code
+                def process_shift(shift_code):
+                    try:
+                        hours = int(scheduler.shift_types[shift_code]['hours'])
+                        display = f"{hours}N" if scheduler.is_night_shift(shift_code) else str(hours)
+                        return (display, shift_code)
+                    except KeyError: # Handle non-standard shift codes
+                        return (shift_code, 'UNKNOWN')
+
                 if len(shifts) >= 1:
-                    s1 = shifts[0]
-                    h1 = int(scheduler.shift_types[s1]['hours'])
-                    d1 = f"{h1}N" if scheduler.is_night_shift(s1) else str(h1)
-                    summary_df.loc[(pharmacist, 'Shift 2'), date_col] = (d1, s1)
+                    summary_df.loc[(pharmacist, 'Shift 2'), date_col] = process_shift(shifts[0])
                 if len(shifts) >= 2:
-                    s2 = shifts[1]
-                    h2 = int(scheduler.shift_types[s2]['hours'])
-                    d2 = f"{h2}N" if scheduler.is_night_shift(s2) else str(h2)
-                    summary_df.loc[(pharmacist, 'Shift 1'), date_col] = (d2, s2)
+                    summary_df.loc[(pharmacist, 'Shift 1'), date_col] = process_shift(shifts[1])
     
     summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
-
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
     
     for pharmacist in active_pharmacists:
         for i, date in enumerate(sorted_dates):
             date_col = date_cols[i]
-            
             if summary_df.loc[(pharmacist, 'Shift 2'), date_col][1] == 'OFF':
                 off_style = f"background-color: {styles['off_fill']}; font-weight: bold; text-align: center;"
                 style_df.loc[(pharmacist, 'Note'), date_col] = off_style
@@ -1306,33 +1306,30 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
 
             for row_type in row_types:
                 display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
-                
-                # Default background is transparent for theme compatibility
-                bg_color = 'transparent'
-                font_color = 'inherit' # Inherit theme's font color
-                font_weight = 'normal'
+                bg_color = 'transparent'; font_color = 'inherit'; font_weight = 'normal'
 
-                if style_key and style_key != 'NOTE': # It's a shift
+                if style_key == 'UNKNOWN':
+                    bg_color = '#4a4a4a' # Dark grey for unknown codes
+                    font_color = 'white'
+                    font_weight = 'bold'
+                elif style_key and style_key != 'NOTE':
                     prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
                     if prefix:
                         bg_color = styles['fills'][prefix]
-                        # Use the theme's font color unless specified otherwise (e.g., white on dark blue)
-                        font_color = styles['fonts'].get(prefix, 'inherit')
                         font_weight = 'bold'
+                        # Explicitly set font color ONLY if defined, otherwise inherit from theme
+                        if prefix in styles['fonts']:
+                            font_color = styles['fonts'][prefix]
                 
-                # NOTE: The logic for yellow empty cells on holidays has been removed as requested.
+                style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;"
 
-                style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center;"
-
-    styler = summary_df.style.apply(lambda x: style_df, axis=None)
-    styler.format(lambda val: val[0] if isinstance(val, tuple) else val)
+    styler = summary_df.style.apply(lambda x: style_df, axis=None).format(lambda val: val[0] if isinstance(val, tuple) else val)
     styler.set_table_styles([
         {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold')]},
         {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
         {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
         {'selector': 'td, th', 'props': 'border: 1px solid #ccc;'},
     ], overwrite=False)
-
     return styler
 
 
@@ -1528,6 +1525,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
