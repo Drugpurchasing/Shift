@@ -780,6 +780,7 @@ class PharmacistScheduler:
             }
         }
 
+    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
     def create_daily_summary(self, ws, schedule):
         styles_info = self._setup_daily_summary_styles()
         styles = {
@@ -827,7 +828,7 @@ class PharmacistScheduler:
                 shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
                 is_personal_holiday = date_str in self.pharmacists[pharmacist]['holidays']
                 is_public_holiday_or_weekend = self.is_holiday(date) or date.weekday() >= 5
-
+    
                 def process_excel_shift(shift_code):
                     try:
                         sanitized_code = str(shift_code).strip()
@@ -838,7 +839,7 @@ class PharmacistScheduler:
                             return hours
                     except Exception:
                         return ""
-
+    
                 if is_personal_holiday:
                     cell2.value = 'X'
                     cell1.value = None
@@ -851,7 +852,8 @@ class PharmacistScheduler:
                             prefix = next((p for p in styles['fills'] if shift.strip().startswith(p)), None)
                             if prefix:
                                 fill_color = styles['fills'][prefix]
-                                cell2.fill, cell2.font = fill_color, styles['fonts'].get(prefix, styles['fonts']['default'])
+                                cell2.fill = fill_color
+                                cell2.font = styles['fonts'].get(prefix, styles['fonts']['default'])
                                 if len(shifts) == 1: cell1.fill = fill_color
                     
                     if len(shifts) > 1:
@@ -859,12 +861,14 @@ class PharmacistScheduler:
                         cell1.value = process_excel_shift(shift)
                         if cell1.value != "":
                             prefix = next((p for p in styles['fills'] if shift.strip().startswith(p)), None)
-                            if prefix: cell1.fill, cell1.font = styles['fonts'].get(prefix, styles['fonts']['default'])
-
+                            if prefix:
+                                cell1.fill = styles['fills'][prefix]
+                                cell1.font = styles['fonts'].get(prefix, styles['fonts']['default'])
+    
                     if is_public_holiday_or_weekend and not shifts:
                         if cell1.value is None: cell1.fill = styles['holiday_empty_fill']
                         if cell2.value is None: cell2.fill = styles['holiday_empty_fill']
-
+    
                 if note_text:
                     note_cell.value = note_text
                     note_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -887,6 +891,7 @@ class PharmacistScheduler:
         for col in range(2, len(schedule.index) + 3):
             ws.column_dimensions[get_column_letter(col)].width = 7
 
+    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
     def create_daily_summary_with_codes(self, ws, schedule):
         styles_info = self._setup_daily_summary_styles()
         styles = {
@@ -904,7 +909,7 @@ class PharmacistScheduler:
                 'header': Font(bold=True)
             }
         }
-
+    
         ordered_pharmacists = [
             "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
             "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
@@ -939,14 +944,14 @@ class PharmacistScheduler:
                 shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
                 is_personal_holiday = date_str in self.pharmacists[pharmacist]['holidays']
                 is_public_holiday_or_weekend = self.is_holiday(date) or date.weekday() >= 5
-
+    
                 def is_valid_shift(shift_code):
                     try:
                         _ = self.shift_types[str(shift_code).strip()]['hours']
                         return True
                     except Exception:
                         return False
-
+    
                 if is_personal_holiday:
                     cell2.value = 'OFF'
                     cell1.value = None
@@ -971,11 +976,11 @@ class PharmacistScheduler:
                             if prefix:  
                                 cell.fill = styles['fills'][prefix]
                                 cell.font = styles['fonts'].get(prefix, styles['fonts']['default'])
-
+    
                     if is_public_holiday_or_weekend and not shifts:
                         if cell1.value is None: cell1.fill = styles['holiday_empty_fill']
                         if cell2.value is None: cell2.fill = styles['holiday_empty_fill']
-
+    
                 if note_text:
                     note_cell.value = note_text
                     note_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -1356,3 +1361,4 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
