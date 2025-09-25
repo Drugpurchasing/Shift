@@ -8,6 +8,7 @@ from openpyxl.utils import get_column_letter
 import random
 from statistics import stdev
 import io # Required for in-memory file handling
+import time as time_module # <<< CORRECTION 1: Import the 'time' module with an alias
 
 # --- The PharmacistScheduler Class (Unchanged from the previous version) ---
 # The core logic remains the same as pandas can read directly from a URL.
@@ -1240,7 +1241,7 @@ if run_button:
 
         scheduler = PharmacistScheduler(excel_url, logger=streamlit_logger)
         scheduler.load_data_with_progress(progress_callback)
-        time.sleep(1) # a short pause to let user see the final message
+        time_module.sleep(1) # <<< CORRECTION 2: Use the aliased module here
         load_progress_bar.empty()
         
         # --- Progress bar for optimization ---
@@ -1303,5 +1304,4 @@ if run_button:
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error("อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนแปลง, หรือไฟล์ไม่พร้อมใช้งาน กรุณาตรวจสอบลิงก์และลองใหม่อีกครั้ง")
-
 
