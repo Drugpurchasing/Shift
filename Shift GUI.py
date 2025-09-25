@@ -1292,7 +1292,8 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                     d2 = f"{h2}N" if scheduler.is_night_shift(s2) else str(h2)
                     summary_df.loc[(pharmacist, 'Shift 1'), date_col] = (d2, s2)
     
-    summary_df.fillna(('', ''), inplace=True) # Fill NaNs with empty tuple
+
+    summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
 
     # Create a second DataFrame of the same size to hold CSS styles
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
@@ -1534,5 +1535,6 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
