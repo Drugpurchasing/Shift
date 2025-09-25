@@ -1240,18 +1240,14 @@ class PharmacistScheduler:
 
 
 # =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
-# =========================================================================
-# =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (HTML RENDERER) ============
+# ================== STREAMLIT HELPER FUNCTION (HTML RENDERER V2) =========
 # =========================================================================
 def render_summary_as_html(scheduler, schedule_df):
     """
-    Renders the daily summary schedule as a raw HTML string with custom CSS
-    to enforce fixed column widths, bypassing st.dataframe limitations.
+    Renders the daily summary schedule as a raw HTML string with custom CSS.
+    This version fixes issues with missing X, Notes, and holiday colors.
     """
-    # --- 1. สร้าง Styler Object เหมือนเดิม ---
-    # (โค้ดส่วนนี้เหมือนกับฟังก์ชันเดิมที่ใช้สร้าง DataFrame และใส่สี)
+    # --- 1. เตรียมข้อมูล DataFrame (ส่วนนี้เหมือนเดิม) ---
     styles = scheduler._setup_daily_summary_styles()
     ordered_pharmacists = [
         "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
@@ -1287,55 +1283,75 @@ def render_summary_as_html(scheduler, schedule_df):
                 if len(shifts) >= 2: summary_df.loc[(pharmacist, 'Shift 1'), date_col] = process_shift(shifts[1])
     
     summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
+    
+    # --- 2. สร้าง DataFrame สำหรับเก็บ Style ใหม่ทั้งหมด ---
+    # <<< CHANGE: ส่วนนี้ถูกเขียนขึ้นมาใหม่ทั้งหมดเพื่อแก้ปัญหา
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
 
     for pharmacist in active_pharmacists:
-        for i, date in enumerate(sorted_dates):
-            date_col = date_cols[i]
-            if summary_df.loc[(pharmacist, 'Shift 2'), date_col][1] == 'OFF':
-                off_style = f"background-color: {styles['off_fill']}; font-weight: bold; text-align: center;"
-                style_df.loc[(pharmacist, 'Note'), date_col] = off_style
-                style_df.loc[(pharmacist, 'Shift 1'), date_col] = off_style
-                style_df.loc[(pharmacist, 'Shift 2'), date_col] = off_style
-                continue
-            for row_type in row_types:
-                display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
-                bg_color = 'transparent'
-                font_weight = 'normal'
-                if style_key and style_key != 'NOTE':
-                    prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
-                    if prefix:
-                        bg_color = styles['fills'][prefix]
-                        font_weight = 'bold'
-                style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;"
-    
+        for date in sorted_dates:
+            date_col = date.strftime('%d/%m')
+            date_str_ymd = date.strftime('%Y-%m-%d')
+
+            is_personal_holiday = date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']
+            is_public_holiday_or_weekend = scheduler.is_holiday(date) or date.weekday() >= 5
+            
+            if is_personal_holiday:
+                style = f"background-color: {styles['off_fill']}; font-weight: bold; text-align: center;"
+                style_df.loc[(pharmacist, 'Note'), date_col] = style
+                style_df.loc[(pharmacist, 'Shift 1'), date_col] = style
+                style_df.loc[(pharmacist, 'Shift 2'), date_col] = style
+            else:
+                # จัดการ 3 แถว (Note, Shift 1, Shift 2)
+                for row_idx, row_type in enumerate(row_types):
+                    display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
+                    
+                    bg_color = 'transparent'
+                    font_weight = 'normal'
+                    
+                    if style_key and style_key != 'NOTE':
+                        # ถ้ามีเวร ให้ใช้สีของเวร
+                        prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
+                        if prefix:
+                            bg_color = styles['fills'][prefix]
+                            font_weight = 'bold'
+                    elif is_public_holiday_or_weekend:
+                        # ถ้าไม่มีเวร และเป็นวันหยุด ให้ใช้สีเหลือง
+                        bg_color = styles['holiday_empty_fill']
+
+                    style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;"
+
     styler = summary_df.style.apply(lambda x: style_df, axis=None).format(lambda val: val[0] if isinstance(val, tuple) else val)
 
-    # --- 2. สร้าง CSS ที่จะใช้บังคับ Layout ---
-    # !important คือการบอกว่าให้ใช้สไตล์นี้เป็นหลัก ห้ามใครมาทับ
-    custom_css = """
+    # --- 3. สร้าง CSS ที่จะใช้บังคับ Layout (ปรับปรุงใหม่) ---
+    custom_css = f"""
     <style>
-        .schedule-table table {
+        .schedule-table table {{
             table-layout: fixed !important;
             width: 100% !important;
             border-collapse: collapse;
-        }
-        .schedule-table th.row_heading {
-            width: 220px !important; /* ความกว้างคอลัมน์ชื่อ */
+        }}
+        .schedule-table th.row_heading {{
+            width: 190px !important; /* <<< CHANGE: ลดความกว้างคอลัมน์ชื่อ */
             text-align: left !important;
-        }
-        .schedule-table thead th {
+            background-color: {styles['header_fill']} !important;
+        }}
+        .schedule-table thead th {{
              text-align: center !important;
-        }
-        .schedule-table td, .schedule-table thead th:not(:first-child) {
-            width: 50px !important; /* <<< ปรับความกว้างคอลัมน์วันที่ตรงนี้ */
+             background-color: {styles['header_fill']} !important;
+             font-weight: bold;
+        }}
+        .schedule-table th.level1 {{
+            background-color: #F0F0F0 !important;
+        }}
+        .schedule-table td, .schedule-table thead th:not(:first-child) {{
+            width: 45px !important; /* ความกว้างคอลัมน์วันที่ */
             border: 1px solid #ccc;
-        }
+        }}
     </style>
     """
 
-    # --- 3. แปลง Styler เป็น HTML และรวมกับ CSS ---
-    # เราครอบตารางด้วย <div class="schedule-table"> เพื่อให้ CSS ของเราทำงานกับตารางนี้เท่านั้น
+    # --- 4. แปลง Styler เป็น HTML และรวมกับ CSS ---
     table_html = styler.to_html()
     full_html = f'<div class="schedule-table">{custom_css}{table_html}</div>'
     
@@ -1534,6 +1550,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
