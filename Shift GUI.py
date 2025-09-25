@@ -1242,10 +1242,13 @@ class PharmacistScheduler:
 # =========================================================================
 # ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
+# =========================================================================
+# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
+# =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
-    Handles non-standard shift codes gracefully and is compatible with themes.
+    This version mimics the exact output style of the create_daily_summary Excel function.
     """
     styles = scheduler._setup_daily_summary_styles()
     
@@ -1272,18 +1275,23 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
             shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
             note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, '')
             
+            # CHANGE 1: แสดงผลวันลาเป็น 'X' เหมือนใน Excel
             if date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']:
-                summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('OFF', 'OFF')
+                summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('X', 'OFF')
             else:
                 if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
                 
                 def process_shift(shift_code):
                     try:
+                        # CHANGE 2: นำ Logic การแสดงผลจากฟังก์ชัน Excel มาใช้
                         hours = int(scheduler.shift_types[shift_code]['hours'])
-                        display = str(hours)
+                        if scheduler.is_night_shift(shift_code):
+                            display = f"{hours}N"
+                        else:
+                            display = str(hours)
                         return (display, shift_code)
-                    # !! CHANGE: Catches ALL possible errors to ensure no code is ever displayed
-                    except (KeyError, ValueError, TypeError):
+                    except Exception:
+                        # ยังคงป้องกันการแสดงโค้ดที่ไม่รู้จักเหมือนเดิม
                         return ('', shift_code)
 
                 if len(shifts) >= 1:
@@ -1527,6 +1535,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
