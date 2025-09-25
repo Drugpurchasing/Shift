@@ -920,7 +920,7 @@ st.title("⚕️ โปรแกรมจัดตารางเวรเภส
 
 with st.sidebar:
     st.header("⚙️ ตั้งค่าการทำงาน")
-    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSwlFKiinzL_gyIKn7YZNDSj4gLfzcuuYL8lfBlKCMPkYMhN2HASaam4scgsjs0Hg/pub?output=xlsx"
+    excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
     st.info("โปรแกรมจะดึงข้อมูลจาก Google Sheet โดยอัตโนมัติ")
     
     mode = st.radio("เลือกรูปแบบการจัดตาราง", ("จัดทั้งเดือน", "จัดเฉพาะวันที่เลือก"))
@@ -1014,4 +1014,5 @@ if st.session_state.get('results', None):
             with st.expander(f"ตาราง: {sheet_name}"):
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 st.dataframe(df)
+
 
