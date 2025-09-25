@@ -1242,13 +1242,17 @@ class PharmacistScheduler:
 # =========================================================================
 # ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
-def display_daily_summary_as_styled_df(scheduler, schedule_df):
+# =========================================================================
+# ================== STREAMLIT HELPER FUNCTION (HTML RENDERER) ============
+# =========================================================================
+def render_summary_as_html(scheduler, schedule_df):
     """
-    Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
-    Displays hours for shifts, 'N' for night shifts, 'X' for holidays, and special notes.
+    Renders the daily summary schedule as a raw HTML string with custom CSS
+    to enforce fixed column widths, bypassing st.dataframe limitations.
     """
+    # --- 1. สร้าง Styler Object เหมือนเดิม ---
+    # (โค้ดส่วนนี้เหมือนกับฟังก์ชันเดิมที่ใช้สร้าง DataFrame และใส่สี)
     styles = scheduler._setup_daily_summary_styles()
-    
     ordered_pharmacists = [
         "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
         "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
@@ -1257,11 +1261,9 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
         "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)",
         "ภญ.กันต์หทัย (ซีน)","ภญ.พัทธ์ธีรา (วิว)","ภญ.จุฑามาศ (กวาง)",'ภญ. ณัฐพร (แอม)'
     ]
-    
     active_pharmacists = [p for p in ordered_pharmacists if p in scheduler.pharmacists]
     sorted_dates = sorted(schedule_df.index)
     date_cols = [d.strftime('%d/%m') for d in sorted_dates]
-    
     row_types = ['Note', 'Shift 1', 'Shift 2']
     multi_index = pd.MultiIndex.from_product([active_pharmacists, row_types], names=['Pharmacist', ''])
     summary_df = pd.DataFrame(index=multi_index, columns=date_cols, dtype=object)
@@ -1270,33 +1272,23 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
         for date in sorted_dates:
             date_col = date.strftime('%d/%m'); date_str_ymd = date.strftime('%Y-%m-%d')
             shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule_df)
-            
             note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, '')
-            
             if date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']:
                 summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('X', 'OFF')
             else:
                 if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
-                
                 def process_shift(shift_code):
                     try:
                         hours = int(scheduler.shift_types[shift_code]['hours'])
-                        if scheduler.is_night_shift(shift_code):
-                            display = f"{hours}N"
-                        else:
-                            display = str(hours)
+                        display = f"{hours}N" if scheduler.is_night_shift(shift_code) else str(hours)
                         return (display, shift_code)
-                    except Exception:
-                        return ('', shift_code)
-
-                if len(shifts) >= 1:
-                    summary_df.loc[(pharmacist, 'Shift 2'), date_col] = process_shift(shifts[0])
-                if len(shifts) >= 2:
-                    summary_df.loc[(pharmacist, 'Shift 1'), date_col] = process_shift(shifts[1])
+                    except Exception: return ('', shift_code)
+                if len(shifts) >= 1: summary_df.loc[(pharmacist, 'Shift 2'), date_col] = process_shift(shifts[0])
+                if len(shifts) >= 2: summary_df.loc[(pharmacist, 'Shift 1'), date_col] = process_shift(shifts[1])
     
     summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
-    
+
     for pharmacist in active_pharmacists:
         for i, date in enumerate(sorted_dates):
             date_col = date_cols[i]
@@ -1306,48 +1298,48 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 style_df.loc[(pharmacist, 'Shift 1'), date_col] = off_style
                 style_df.loc[(pharmacist, 'Shift 2'), date_col] = off_style
                 continue
-
             for row_type in row_types:
                 display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
                 bg_color = 'transparent'
                 font_weight = 'normal'
-                css_properties = []
-
                 if style_key and style_key != 'NOTE':
                     prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
                     if prefix:
                         bg_color = styles['fills'][prefix]
                         font_weight = 'bold'
-                
-                css_properties.append(f"background-color: {bg_color};")
-                css_properties.append(f"font-weight: {font_weight};")
-                css_properties.append("text-align: center;")
-                css_properties.append("white-space: pre-wrap;")
-                
-                style_df.loc[(pharmacist, row_type), date_col] = " ".join(css_properties)
-
+                style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;"
+    
     styler = summary_df.style.apply(lambda x: style_df, axis=None).format(lambda val: val[0] if isinstance(val, tuple) else val)
+
+    # --- 2. สร้าง CSS ที่จะใช้บังคับ Layout ---
+    # !important คือการบอกว่าให้ใช้สไตล์นี้เป็นหลัก ห้ามใครมาทับ
+    custom_css = """
+    <style>
+        .schedule-table table {
+            table-layout: fixed !important;
+            width: 100% !important;
+            border-collapse: collapse;
+        }
+        .schedule-table th.row_heading {
+            width: 220px !important; /* ความกว้างคอลัมน์ชื่อ */
+            text-align: left !important;
+        }
+        .schedule-table thead th {
+             text-align: center !important;
+        }
+        .schedule-table td, .schedule-table thead th:not(:first-child) {
+            width: 50px !important; /* <<< ปรับความกว้างคอลัมน์วันที่ตรงนี้ */
+            border: 1px solid #ccc;
+        }
+    </style>
+    """
+
+    # --- 3. แปลง Styler เป็น HTML และรวมกับ CSS ---
+    # เราครอบตารางด้วย <div class="schedule-table"> เพื่อให้ CSS ของเราทำงานกับตารางนี้เท่านั้น
+    table_html = styler.to_html()
+    full_html = f'<div class="schedule-table">{custom_css}{table_html}</div>'
     
-    # <<< CHANGE: แก้ไขส่วนนี้ทั้งหมดเพื่อบังคับความกว้างคอลัมน์
-    styler.set_table_styles([
-        # บรรทัดนี้สำคัญที่สุด: บังคับให้ตารางมี layout แบบคงที่
-        {'selector': '', 'props': [('table-layout', 'fixed')]},
-        
-        # กำหนดสไตล์ทั่วไปของ Header
-        {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'center')]},
-        
-        # กำหนดความกว้างของคอลัมน์แรก (ชื่อเภสัชกร)
-        {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('width', '200px')]},
-        
-        # กำหนดสไตล์ของแถว multi-index (Note, Shift1, Shift2)
-        {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
-        
-        # กำหนดความกว้างและเส้นขอบของ "ทุกเซลล์ข้อมูล" (td)
-        # คุณสามารถปรับแก้ค่า '45px' ตรงนี้ได้ตามต้องการ
-        {'selector': 'td', 'props': [('border', '1px solid #ccc'), ('width', '20px')]}
-    ], overwrite=True) # <<< CHANGE: เปลี่ยนเป็น True เพื่อให้สไตล์ใหม่ทับของเก่าทั้งหมด
-    
-    return styler
+    return full_html
 
 
 # =========================================================================
@@ -1485,8 +1477,8 @@ if 'best_schedule' in st.session_state:
         st.subheader("ตารางสรุปการทำงาน (Daily Summary View)")
         st.markdown("ตารางนี้แสดงผลในรูปแบบ 3 แถวต่อคน เหมือนในไฟล์ Excel")
         
-        styled_df = display_daily_summary_as_styled_df(scheduler, schedule)
-        st.dataframe(styled_df, use_container_width=True, height=800)
+        html_output = render_summary_as_html(scheduler, schedule)
+        st.markdown(html_output, unsafe_allow_html=True)
 
     with tab2:
         st.subheader("ข้อมูลตารางเวร (Raw Data)")
@@ -1542,6 +1534,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
