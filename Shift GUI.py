@@ -1325,12 +1325,12 @@ def render_summary_as_html(scheduler, schedule_df):
         }}
         .schedule-table th, .schedule-table td {{
             /* <<< CHANGE: กำหนดความสูงและ Padding ตรงนี้ */
-            height: 30px !important;
+            height: 45px !important;
             padding: 1px !important;
             border: 1px solid #ccc;
         }}
         .schedule-table th.row_heading {{
-            width: 190px !important;
+            width: 100px !important;
             text-align: left !important;
             padding-left: 5px !important;
             background-color: {styles['header_fill']} !important;
@@ -1548,6 +1548,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
