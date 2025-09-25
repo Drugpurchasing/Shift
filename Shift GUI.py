@@ -1242,6 +1242,9 @@ class PharmacistScheduler:
 # =========================================================================
 # ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
+# =========================================================================
+# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
+# =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
@@ -1273,7 +1276,8 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
             note = scheduler.special_notes.get(pharmacist, {}).get(date_str_ymd, '')
             
             if date_str_ymd in scheduler.pharmacists[pharmacist]['holidays']:
-                summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('X', 'OFF')
+                # Use 'OFF' for display and 'OFF' as the style key
+                summary_df.loc[(pharmacist, 'Shift 2'), date_col] = ('OFF', 'OFF')
             else:
                 if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
                 
@@ -1281,7 +1285,8 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 def process_shift(shift_code):
                     try:
                         hours = int(scheduler.shift_types[shift_code]['hours'])
-                        display = f"{hours}N" if scheduler.is_night_shift(shift_code) else str(hours)
+                        # Display only the number, not the code or 'N'
+                        display = str(hours)
                         return (display, shift_code)
                     except KeyError: # Handle non-standard shift codes
                         return (shift_code, 'UNKNOWN')
@@ -1291,12 +1296,17 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 if len(shifts) >= 2:
                     summary_df.loc[(pharmacist, 'Shift 1'), date_col] = process_shift(shifts[1])
     
+    # Fill any remaining NaNs with an empty tuple for consistent processing
     summary_df = summary_df.applymap(lambda x: ('', '') if pd.isna(x) else x)
+    
+    # Create a parallel DataFrame to hold CSS style strings
     style_df = pd.DataFrame('', index=summary_df.index, columns=summary_df.columns)
     
     for pharmacist in active_pharmacists:
         for i, date in enumerate(sorted_dates):
             date_col = date_cols[i]
+
+            # Check for personal holiday first
             if summary_df.loc[(pharmacist, 'Shift 2'), date_col][1] == 'OFF':
                 off_style = f"background-color: {styles['off_fill']}; font-weight: bold; text-align: center;"
                 style_df.loc[(pharmacist, 'Note'), date_col] = off_style
@@ -1304,32 +1314,46 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 style_df.loc[(pharmacist, 'Shift 2'), date_col] = off_style
                 continue
 
+            # Process other cells
             for row_type in row_types:
                 display_text, style_key = summary_df.loc[(pharmacist, row_type), date_col]
-                bg_color = 'transparent'; font_color = 'inherit'; font_weight = 'normal'
+                
+                # Defaults for theme compatibility
+                bg_color = 'transparent'
+                font_weight = 'normal'
+                css_properties = []
 
                 if style_key == 'UNKNOWN':
                     bg_color = '#4a4a4a' # Dark grey for unknown codes
-                    font_color = 'white'
                     font_weight = 'bold'
+                    css_properties.append('color: white;')
                 elif style_key and style_key != 'NOTE':
                     prefix = next((p for p in styles['fills'] if style_key.startswith(p)), None)
                     if prefix:
                         bg_color = styles['fills'][prefix]
                         font_weight = 'bold'
-                        # Explicitly set font color ONLY if defined, otherwise inherit from theme
+                        # ONLY add a font color if it's explicitly defined (for dark backgrounds)
                         if prefix in styles['fonts']:
-                            font_color = styles['fonts'][prefix]
+                            css_properties.append(f"color: {styles['fonts'][prefix]};")
                 
-                style_df.loc[(pharmacist, row_type), date_col] = f"background-color: {bg_color}; color: {font_color}; font-weight: {font_weight}; text-align: center; white-space: pre-wrap;"
+                # Build the final CSS string
+                css_properties.append(f"background-color: {bg_color};")
+                css_properties.append(f"font-weight: {font_weight};")
+                css_properties.append("text-align: center;")
+                css_properties.append("white-space: pre-wrap;")
+                
+                style_df.loc[(pharmacist, row_type), date_col] = " ".join(css_properties)
 
+    # Apply styles and format the display value from the tuple
     styler = summary_df.style.apply(lambda x: style_df, axis=None).format(lambda val: val[0] if isinstance(val, tuple) else val)
+    
     styler.set_table_styles([
         {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold')]},
         {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
         {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
         {'selector': 'td, th', 'props': 'border: 1px solid #ccc;'},
     ], overwrite=False)
+    
     return styler
 
 
@@ -1525,6 +1549,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
