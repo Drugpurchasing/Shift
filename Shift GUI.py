@@ -1003,98 +1003,119 @@ class PharmacistScheduler:
             }
         }
 
-    def create_daily_summary(self, ws, schedule):
-        styles_info = self._setup_daily_summary_styles()
-        styles = {
-            'header_fill': PatternFill(fill_type='solid', start_color=styles_info['header_fill'].replace('#', 'FF')),
-            'weekend_fill': PatternFill(fill_type='solid', start_color=styles_info['weekend_fill'].replace('#', 'FF')),
-            'holiday_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_fill'].replace('#', 'FF')),
-            'holiday_empty_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_empty_fill'].replace('#', 'FF')),
-            'off_fill': PatternFill(fill_type='solid', start_color=styles_info['off_fill'].replace('#', 'FF')),
-            'border': Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin')),
-            'fills': {p: PatternFill(fill_type='solid', start_color=c.replace('#', 'FF')) for p, c in styles_info['fills'].items()},
-            'fonts': {
-                'O400F1': Font(bold=True, color="FFFFFFFF"), 'ARI': Font(bold=True, color="FFFFFFFF"),
-                'default': Font(bold=True), 'header': Font(bold=True)
-            }
+    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
+def create_daily_summary(self, ws, schedule):
+    styles_info = self._setup_daily_summary_styles()
+    styles = {
+        'header_fill': PatternFill(fill_type='solid', start_color=styles_info['header_fill'].replace('#', 'FF')),
+        'weekend_fill': PatternFill(fill_type='solid', start_color=styles_info['weekend_fill'].replace('#', 'FF')),
+        'holiday_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_fill'].replace('#', 'FF')),
+        'holiday_empty_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_empty_fill'].replace('#', 'FF')),
+        'off_fill': PatternFill(fill_type='solid', start_color=styles_info['off_fill'].replace('#', 'FF')),
+        'border': Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin')),
+        'fills': {p: PatternFill(fill_type='solid', start_color=c.replace('#', 'FF')) for p, c in styles_info['fills'].items()},
+        'fonts': {
+            'O400F1': Font(bold=True, color="FFFFFFFF"), 'ARI': Font(bold=True, color="FFFFFFFF"),
+            'default': Font(bold=True), 'header': Font(bold=True)
         }
-        
-        ordered_pharmacists = [
-            "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
-            "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
-            "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)", "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)",
-            "ภญ.วรรณิดา (ม่าน)", "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)", "ภญ.ดวงดาว (ปลา)",
-            "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)",
-            "ภญ.กันต์หทัย (ซีน)","ภญ.พัทธ์ธีรา (วิว)","ภญ.จุฑามาศ (กวาง)",'ภญ. ณัฐพร (แอม)'
-        ]
-        ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
-        sorted_dates = sorted(schedule.index)
+    }
+    
+    ordered_pharmacists = [
+        "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
+        "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
+        "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)", "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)",
+        "ภญ.วรรณิดา (ม่าน)", "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)", "ภญ.ดวงดาว (ปลา)",
+        "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)",
+        "ภญ.กันต์หทัย (ซีน)","ภญ.พัทธ์ธีรา (วิว)","ภญ.จุฑามาศ (กวาง)",'ภญ. ณัฐพร (แอม)'
+    ]
+    ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
+    sorted_dates = sorted(schedule.index)
+    for col, date in enumerate(sorted_dates, 2):
+        cell = ws.cell(row=1, column=col, value=date.strftime('%d/%m'))
+        cell.fill, cell.font = styles['header_fill'], styles['fonts']['header']
+        if date.weekday() >= 5: cell.fill = styles['weekend_fill']
+        if self.is_holiday(date): cell.fill = styles['holiday_fill']
+    
+    current_row = 2
+    for pharmacist in ordered_pharmacists:
+        if pharmacist not in self.pharmacists: continue
+        ws.cell(row=current_row, column=1, value="").fill = styles['header_fill']
+        ws.cell(row=current_row + 1, column=1, value=pharmacist).fill = styles['header_fill']
+        ws.cell(row=current_row + 2, column=1, value="").fill = styles['header_fill']
         for col, date in enumerate(sorted_dates, 2):
-            cell = ws.cell(row=1, column=col, value=date.strftime('%d/%m'))
-            cell.fill, cell.font = styles['header_fill'], styles['fonts']['header']
-            if date.weekday() >= 5: cell.fill = styles['weekend_fill']
-            if self.is_holiday(date): cell.fill = styles['holiday_fill']
-        current_row = 2
-        for pharmacist in ordered_pharmacists:
-            if pharmacist not in self.pharmacists: continue
-            ws.cell(row=current_row, column=1, value="").fill = styles['header_fill']
-            ws.cell(row=current_row + 1, column=1, value=pharmacist).fill = styles['header_fill']
-            ws.cell(row=current_row + 2, column=1, value="").fill = styles['header_fill']
-            for col, date in enumerate(sorted_dates, 2):
-                note_cell, cell1, cell2 = [ws.cell(row=current_row + r, column=col) for r in range(3)]
-                all_cells = [note_cell, cell1, cell2]
-                for cell in all_cells:
-                    cell.border = styles['border']
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                date_str = date.strftime('%Y-%m-%d')
-                note_text = self.special_notes.get(pharmacist, {}).get(date_str)
-                shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
-                is_personal_holiday = date_str in self.pharmacists[pharmacist]['holidays']
-                is_public_holiday_or_weekend = self.is_holiday(date) or date.weekday() >= 5
-                if is_personal_holiday:
-                    cell2.value = 'X'
-                    cell1.value = None
-                    for cell in all_cells:
-                        cell.fill = styles['off_fill']
-                else:
-                    if len(shifts) > 0:
-                        shift = shifts[0]
-                        cell2.value = f"{int(self.shift_types[shift]['hours'])}N" if self.is_night_shift(shift) else int(self.shift_types[shift]['hours'])
-                        prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+            note_cell, cell1, cell2 = [ws.cell(row=current_row + r, column=col) for r in range(3)]
+            all_cells = [note_cell, cell1, cell2]
+            for cell in all_cells:
+                cell.border = styles['border']
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+            date_str = date.strftime('%Y-%m-%d')
+            note_text = self.special_notes.get(pharmacist, {}).get(date_str)
+            shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
+            is_personal_holiday = date_str in self.pharmacists[pharmacist]['holidays']
+            is_public_holiday_or_weekend = self.is_holiday(date) or date.weekday() >= 5
+
+            def process_excel_shift(shift_code):
+                try:
+                    sanitized_code = str(shift_code).strip()
+                    hours = int(self.shift_types[sanitized_code]['hours'])
+                    if self.is_night_shift(sanitized_code):
+                        return f"{hours}N"
+                    else:
+                        return hours
+                except Exception:
+                    return "" # ถ้า Error ให้เป็นค่าว่าง
+
+            if is_personal_holiday:
+                cell2.value = 'X'
+                cell1.value = None
+                for cell in all_cells: cell.fill = styles['off_fill']
+            else:
+                if len(shifts) > 0:
+                    shift = shifts[0]
+                    cell2.value = process_excel_shift(shift)
+                    if cell2.value != "":
+                        prefix = next((p for p in styles['fills'] if shift.strip().startswith(p)), None)
                         if prefix:
                             fill_color = styles['fills'][prefix]
                             cell2.fill, cell2.font = fill_color, styles['fonts'].get(prefix, Font(bold=True))
                             if len(shifts) == 1: cell1.fill = fill_color
-                    if len(shifts) > 1:
-                        shift = shifts[1]
-                        cell1.value = f"{int(self.shift_types[shift]['hours'])}N" if self.is_night_shift(shift) else int(self.shift_types[shift]['hours'])
-                        prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                
+                if len(shifts) > 1:
+                    shift = shifts[1]
+                    cell1.value = process_excel_shift(shift)
+                    if cell1.value != "":
+                        prefix = next((p for p in styles['fills'] if shift.strip().startswith(p)), None)
                         if prefix: cell1.fill, cell1.font = styles['fills'][prefix], styles['fonts'].get(prefix, Font(bold=True))
-                    if is_public_holiday_or_weekend:
-                        note_cell.fill = styles['holiday_empty_fill']
-                        if not shifts:
-                            if not cell1.value: cell1.fill = styles['holiday_empty_fill']
-                            if not cell2.value: cell2.fill = styles['holiday_empty_fill']
-                if note_text:
-                    note_cell.value = note_text
-                    note_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            current_row += 3
-        total_row, unfilled_row = current_row + 1, current_row + 2
-        ws.cell(row=total_row, column=1, value="Total Hours").fill = styles['header_fill']
-        ws.cell(row=unfilled_row, column=1, value="Unfilled Shifts").fill = styles['header_fill']
-        for col, date in enumerate(sorted_dates, 2):
-            total_hours = sum(self.shift_types[st]['hours'] for st, p in schedule.loc[date].items() if p not in ['NO SHIFT', 'UNFILLED', 'UNASSIGNED'] and st in self.shift_types)
-            unfilled_shifts = [st for st, p in schedule.loc[date].items() if p in ['UNFILLED', 'UNASSIGNED']]
-            ws.cell(row=total_row, column=col, value=total_hours).border = styles['border']
-            unfilled_cell = ws.cell(row=unfilled_row, column=col)
-            unfilled_cell.border = styles['border']
-            if unfilled_shifts:
-                unfilled_cell.value, unfilled_cell.fill = "\n".join(unfilled_shifts), PatternFill(start_color='FFFFFF00', fill_type='solid')
-            else:
-                unfilled_cell.value = "0"
-        ws.column_dimensions['A'].width = 25
-        for col in range(2, len(schedule.index) + 3):
-            ws.column_dimensions[get_column_letter(col)].width = 7
+
+                if is_public_holiday_or_weekend:
+                    note_cell.fill = styles['holiday_empty_fill']
+                    if not shifts:
+                        if not cell1.value: cell1.fill = styles['holiday_empty_fill']
+                        if not cell2.value: cell2.fill = styles['holiday_empty_fill']
+
+            if note_text:
+                note_cell.value = note_text
+                note_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        current_row += 3
+    
+    # ... (ส่วนท้ายของฟังก์ชันเหมือนเดิม) ...
+    total_row, unfilled_row = current_row + 1, current_row + 2
+    ws.cell(row=total_row, column=1, value="Total Hours").fill = styles['header_fill']
+    ws.cell(row=unfilled_row, column=1, value="Unfilled Shifts").fill = styles['header_fill']
+    for col, date in enumerate(sorted_dates, 2):
+        total_hours = sum(self.shift_types[st]['hours'] for st, p in schedule.loc[date].items() if p not in ['NO SHIFT', 'UNFILLED', 'UNASSIGNED'] and st in self.shift_types)
+        unfilled_shifts = [st for st, p in schedule.loc[date].items() if p in ['UNFILLED', 'UNASSIGNED']]
+        ws.cell(row=total_row, column=col, value=total_hours).border = styles['border']
+        unfilled_cell = ws.cell(row=unfilled_row, column=col)
+        unfilled_cell.border = styles['border']
+        if unfilled_shifts:
+            unfilled_cell.value, unfilled_cell.fill = "\n".join(unfilled_shifts), PatternFill(start_color='FFFFFF00', fill_type='solid')
+        else:
+            unfilled_cell.value = "0"
+    ws.column_dimensions['A'].width = 25
+    for col in range(2, len(schedule.index) + 3):
+        ws.column_dimensions[get_column_letter(col)].width = 7
 
     def create_preference_score_summary(self, ws, schedule):
         header_fill = PatternFill(start_color='FFD3D3D3', end_color='FFD3D3D3', fill_type='solid')
@@ -1116,103 +1137,120 @@ class PharmacistScheduler:
             ws.cell(row=row, column=3, value=total_shifts).border = border
         ws.column_dimensions['A'].width, ws.column_dimensions['B'].width, ws.column_dimensions['C'].width = 30, 25, 25
 
-    def create_daily_summary_with_codes(self, ws, schedule):
-        styles_info = self._setup_daily_summary_styles()
-        styles = {
-            'header_fill': PatternFill(fill_type='solid', start_color=styles_info['header_fill'].replace('#', 'FF')),
-            'weekend_fill': PatternFill(fill_type='solid', start_color=styles_info['weekend_fill'].replace('#', 'FF')),
-            'holiday_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_fill'].replace('#', 'FF')),
-            'holiday_empty_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_empty_fill'].replace('#', 'FF')),
-            'off_fill': PatternFill(fill_type='solid', start_color=styles_info['off_fill'].replace('#', 'FF')),
-            'border': Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin')),
-            'fills': {p: PatternFill(fill_type='solid', start_color=c.replace('#', 'FF')) for p, c in styles_info['fills'].items()},
-            'fonts': {
-                'O400F1': Font(bold=True, color="FFFFFFFF", size=9), 
-                'ARI': Font(bold=True, color="FFFFFFFF", size=9),
-                'default': Font(bold=True, size=9), 
-                'header': Font(bold=True)
-            }
+    # วางในคลาส PharmacistScheduler (ทับฟังก์ชันเดิม)
+def create_daily_summary_with_codes(self, ws, schedule):
+    styles_info = self._setup_daily_summary_styles()
+    styles = {
+        'header_fill': PatternFill(fill_type='solid', start_color=styles_info['header_fill'].replace('#', 'FF')),
+        'weekend_fill': PatternFill(fill_type='solid', start_color=styles_info['weekend_fill'].replace('#', 'FF')),
+        'holiday_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_fill'].replace('#', 'FF')),
+        'holiday_empty_fill': PatternFill(fill_type='solid', start_color=styles_info['holiday_empty_fill'].replace('#', 'FF')),
+        'off_fill': PatternFill(fill_type='solid', start_color=styles_info['off_fill'].replace('#', 'FF')),
+        'border': Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin')),
+        'fills': {p: PatternFill(fill_type='solid', start_color=c.replace('#', 'FF')) for p, c in styles_info['fills'].items()},
+        'fonts': {
+            'O400F1': Font(bold=True, color="FFFFFFFF", size=9),  
+            'ARI': Font(bold=True, color="FFFFFFFF", size=9),
+            'default': Font(bold=True, size=9),  
+            'header': Font(bold=True)
         }
+    }
 
-        ordered_pharmacists = [
-            "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
-            "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
-            "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)", "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)",
-            "ภญ.วรรณิดา (ม่าน)", "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)", "ภญ.ดวงดาว (ปลา)",
-            "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)",
-            "ภญ.กันต์หทัย (ซีน)","ภญ.พัทธ์ธีรา (วิว)","ภญ.จุฑามาศ (กวาง)",'ภญ. ณัฐพร (แอม)'
-        ]
-        ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
-        sorted_dates = sorted(schedule.index)
+    ordered_pharmacists = [
+        "ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)", "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)",
+        "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)", "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
+        "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)", "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)",
+        "ภญ.วรรณิดา (ม่าน)", "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)", "ภญ.ดวงดาว (ปลา)",
+        "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)",
+        "ภญ.กันต์หทัย (ซีน)","ภญ.พัทธ์ธีรา (วิว)","ภญ.จุฑามาศ (กวาง)",'ภญ. ณัฐพร (แอม)'
+    ]
+    ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
+    sorted_dates = sorted(schedule.index)
+    for col, date in enumerate(sorted_dates, 2):
+        cell = ws.cell(row=1, column=col, value=date.strftime('%d/%m'))
+        cell.fill, cell.font = styles['header_fill'], styles['fonts']['header']
+        if date.weekday() >= 5: cell.fill = styles['weekend_fill']
+        if self.is_holiday(date): cell.fill = styles['holiday_fill']
+    
+    current_row = 2
+    for pharmacist in ordered_pharmacists:
+        if pharmacist not in self.pharmacists: continue
+        ws.cell(row=current_row, column=1, value="").fill = styles['header_fill']
+        ws.cell(row=current_row + 1, column=1, value=pharmacist).fill = styles['header_fill']
+        ws.cell(row=current_row + 2, column=1, value="").fill = styles['header_fill']
         for col, date in enumerate(sorted_dates, 2):
-            cell = ws.cell(row=1, column=col, value=date.strftime('%d/%m'))
-            cell.fill, cell.font = styles['header_fill'], styles['fonts']['header']
-            if date.weekday() >= 5: cell.fill = styles['weekend_fill']
-            if self.is_holiday(date): cell.fill = styles['holiday_fill']
-        current_row = 2
-        for pharmacist in ordered_pharmacists:
-            if pharmacist not in self.pharmacists: continue
-            ws.cell(row=current_row, column=1, value="").fill = styles['header_fill']
-            ws.cell(row=current_row + 1, column=1, value=pharmacist).fill = styles['header_fill']
-            ws.cell(row=current_row + 2, column=1, value="").fill = styles['header_fill']
-            for col, date in enumerate(sorted_dates, 2):
-                note_cell, cell1, cell2 = [ws.cell(row=current_row + r, column=col) for r in range(3)]
-                all_cells = [note_cell, cell1, cell2]
-                for cell in all_cells:
-                    cell.border = styles['border']
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                date_str = date.strftime('%Y-%m-%d')
-                note_text = self.special_notes.get(pharmacist, {}).get(date_str)
-                shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
-                is_personal_holiday = date_str in self.pharmacists[pharmacist]['holidays']
-                is_public_holiday_or_weekend = self.is_holiday(date) or date.weekday() >= 5
-                if is_personal_holiday:
-                    cell2.value = 'OFF'
-                    cell1.value = None
-                    for cell in all_cells:
-                        cell.fill = styles['off_fill']
-                else:
-                    if len(shifts) > 0:
-                        shift_code, cell = shifts[0], cell2
+            note_cell, cell1, cell2 = [ws.cell(row=current_row + r, column=col) for r in range(3)]
+            all_cells = [note_cell, cell1, cell2]
+            for cell in all_cells:
+                cell.border = styles['border']
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+            date_str = date.strftime('%Y-%m-%d')
+            note_text = self.special_notes.get(pharmacist, {}).get(date_str)
+            shifts = self.get_pharmacist_shifts(pharmacist, date, schedule)
+            is_personal_holiday = date_str in self.pharmacists[pharmacist]['holidays']
+            is_public_holiday_or_weekend = self.is_holiday(date) or date.weekday() >= 5
+
+            def is_valid_shift(shift_code):
+                try:
+                    _ = self.shift_types[str(shift_code).strip()]['hours']
+                    return True
+                except Exception:
+                    return False
+
+            if is_personal_holiday:
+                cell2.value = 'OFF'
+                cell1.value = None
+                for cell in all_cells: cell.fill = styles['off_fill']
+            else:
+                if len(shifts) > 0:
+                    shift_code, cell = shifts[0], cell2
+                    if is_valid_shift(shift_code):
                         cell.value = shift_code
-                        prefix = next((p for p in styles['fills'] if shift_code.startswith(p)), None)
+                        prefix = next((p for p in styles['fills'] if shift_code.strip().startswith(p)), None)
                         if prefix:
                             fill_color = styles['fills'][prefix]
                             cell.fill = fill_color
                             cell.font = styles['fonts'].get(prefix, styles['fonts']['default'])
                             if len(shifts) == 1: cell1.fill = fill_color
-                    if len(shifts) > 1:
-                        shift_code, cell = shifts[1], cell1
+                
+                if len(shifts) > 1:
+                    shift_code, cell = shifts[1], cell1
+                    if is_valid_shift(shift_code):
                         cell.value = shift_code
-                        prefix = next((p for p in styles['fills'] if shift_code.startswith(p)), None)
-                        if prefix: 
-                           cell.fill = styles['fills'][prefix]
-                           cell.font = styles['fonts'].get(prefix, styles['fonts']['default'])
-                    if is_public_holiday_or_weekend:
-                        note_cell.fill = styles['holiday_empty_fill']
-                        if not shifts:
-                            if not cell1.value: cell1.fill = styles['holiday_empty_fill']
-                            if not cell2.value: cell2.fill = styles['holiday_empty_fill']
-                if note_text:
-                    note_cell.value = note_text
-                    note_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            current_row += 3
-        total_row, unfilled_row = current_row + 1, current_row + 2
-        ws.cell(row=total_row, column=1, value="Total Hours").fill = styles['header_fill']
-        ws.cell(row=unfilled_row, column=1, value="Unfilled Shifts").fill = styles['header_fill']
-        for col, date in enumerate(sorted_dates, 2):
-            total_hours = sum(self.shift_types[st]['hours'] for st, p in schedule.loc[date].items() if p not in ['NO SHIFT', 'UNFILLED', 'UNASSIGNED'] and st in self.shift_types)
-            unfilled_shifts = [st for st, p in schedule.loc[date].items() if p in ['UNFILLED', 'UNASSIGNED']]
-            ws.cell(row=total_row, column=col, value=total_hours).border = styles['border']
-            unfilled_cell = ws.cell(row=unfilled_row, column=col)
-            unfilled_cell.border = styles['border']
-            if unfilled_shifts:
-                unfilled_cell.value, unfilled_cell.fill = "\n".join(unfilled_shifts), PatternFill(start_color='FFFFFF00', fill_type='solid')
-            else:
-                unfilled_cell.value = "0"
-        ws.column_dimensions['A'].width = 25
-        for col in range(2, len(schedule.index) + 2):
-            ws.column_dimensions[get_column_letter(col)].width = 15
+                        prefix = next((p for p in styles['fills'] if shift_code.strip().startswith(p)), None)
+                        if prefix:  
+                            cell.fill = styles['fills'][prefix]
+                            cell.font = styles['fonts'].get(prefix, styles['fonts']['default'])
+
+                if is_public_holiday_or_weekend:
+                    note_cell.fill = styles['holiday_empty_fill']
+                    if not shifts:
+                        if not cell1.value: cell1.fill = styles['holiday_empty_fill']
+                        if not cell2.value: cell2.fill = styles['holiday_empty_fill']
+
+            if note_text:
+                note_cell.value = note_text
+                note_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        current_row += 3
+        
+    # ... (ส่วนท้ายของฟังก์ชันเหมือนเดิม) ...
+    total_row, unfilled_row = current_row + 1, current_row + 2
+    ws.cell(row=total_row, column=1, value="Total Hours").fill = styles['header_fill']
+    ws.cell(row=unfilled_row, column=1, value="Unfilled Shifts").fill = styles['header_fill']
+    for col, date in enumerate(sorted_dates, 2):
+        total_hours = sum(self.shift_types[st]['hours'] for st, p in schedule.loc[date].items() if p not in ['NO SHIFT', 'UNFILLED', 'UNASSIGNED'] and st in self.shift_types)
+        unfilled_shifts = [st for st, p in schedule.loc[date].items() if p in ['UNFILLED', 'UNASSIGNED']]
+        ws.cell(row=total_row, column=col, value=total_hours).border = styles['border']
+        unfilled_cell = ws.cell(row=unfilled_row, column=col)
+        unfilled_cell.border = styles['border']
+        if unfilled_shifts:
+            unfilled_cell.value, unfilled_cell.fill = "\n".join(unfilled_shifts), PatternFill(start_color='FFFFFF00', fill_type='solid')
+        else:
+            unfilled_cell.value = "0"
+    ws.column_dimensions['A'].width = 25
+    for col in range(2, len(schedule.index) + 2):
+        ws.column_dimensions[get_column_letter(col)].width = 15
 
     def calculate_pharmacist_preference_scores(self, schedule):
         scores = {}
@@ -1242,6 +1280,7 @@ class PharmacistScheduler:
 # =========================================================================
 # ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
+# วางในไฟล์ Streamlit App ของคุณ (ทับฟังก์ชันเดิม)
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
     Creates and styles a DataFrame in the 3-row 'Daily Summary' format.
@@ -1279,23 +1318,15 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
                 if note: summary_df.loc[(pharmacist, 'Note'), date_col] = (note, 'NOTE')
                 
                 def process_shift(shift_code):
-                    # !!! จุดแก้ไขสำคัญ !!!
-                    # ยกเลิกการใช้ SHIFT_CODES_TO_HIDE และกลับมาใช้ try/except ที่แม่นยำกว่า
                     try:
-                        # 1. ตัดช่องว่างที่มองไม่เห็นออกก่อน
                         sanitized_code = str(shift_code).strip()
-                        
-                        # 2. ลองค้นหาข้อมูลและแปลงเป็นตัวเลข ถ้าสำเร็จ แสดงว่าเวรถูกต้อง
                         hours = int(scheduler.shift_types[sanitized_code]['hours'])
-                        
-                        # 3. แสดงผลตามปกติ (มี N สำหรับเวรดึก)
                         if scheduler.is_night_shift(sanitized_code):
                             display = f"{hours}N"
                         else:
                             display = str(hours)
                         return (display, sanitized_code)
                     except Exception:
-                        # 4. ถ้าขั้นตอนใดๆ ข้างบนล้มเหลว แสดงว่าเป็นเวรที่ไม่ถูกต้อง -> ให้เป็นค่าว่าง
                         return ('', str(shift_code).strip())
 
                 if len(shifts) >= 1:
@@ -1539,6 +1570,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
