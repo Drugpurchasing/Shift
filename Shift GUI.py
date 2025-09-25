@@ -1240,7 +1240,7 @@ class PharmacistScheduler:
 
 
 # =========================================================================
-# ================== STREAMLIT HELPER FUNCTION (REVISED) ==================
+# ================== STREAMLIT HELPER FUNCTION (FINAL REVISION) ===========
 # =========================================================================
 def display_daily_summary_as_styled_df(scheduler, schedule_df):
     """
@@ -1328,14 +1328,24 @@ def display_daily_summary_as_styled_df(scheduler, schedule_df):
 
     styler = summary_df.style.apply(lambda x: style_df, axis=None).format(lambda val: val[0] if isinstance(val, tuple) else val)
     
+    # <<< CHANGE: แก้ไขส่วนนี้ทั้งหมดเพื่อบังคับความกว้างคอลัมน์
     styler.set_table_styles([
-        {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold')]},
-        {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('min-width', '200px')]},
+        # บรรทัดนี้สำคัญที่สุด: บังคับให้ตารางมี layout แบบคงที่
+        {'selector': '', 'props': [('table-layout', 'fixed')]},
+        
+        # กำหนดสไตล์ทั่วไปของ Header
+        {'selector': 'thead th', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'center')]},
+        
+        # กำหนดความกว้างของคอลัมน์แรก (ชื่อเภสัชกร)
+        {'selector': 'th.row_heading', 'props': [('background-color', styles['header_fill']), ('font-weight', 'bold'), ('text-align', 'left'), ('width', '200px')]},
+        
+        # กำหนดสไตล์ของแถว multi-index (Note, Shift1, Shift2)
         {'selector': 'th.level1', 'props': [('background-color', '#F0F0F0')]},
-        # <<< CHANGE: เพิ่ม 'width' และ 'min-width' เข้าไปใน selector นี้
-        # คุณสามารถปรับแก้ค่า '45px' ได้ตามความต้องการ
-        {'selector': 'td, th', 'props': [('border', '1px solid #ccc'), ('width', '20px'), ('min-width', '20px')]},
-    ], overwrite=False)
+        
+        # กำหนดความกว้างและเส้นขอบของ "ทุกเซลล์ข้อมูล" (td)
+        # คุณสามารถปรับแก้ค่า '45px' ตรงนี้ได้ตามต้องการ
+        {'selector': 'td', 'props': [('border', '1px solid #ccc'), ('width', '45px')]}
+    ], overwrite=True) # <<< CHANGE: เปลี่ยนเป็น True เพื่อให้สไตล์ใหม่ทับของเก่าทั้งหมด
     
     return styler
 
@@ -1532,6 +1542,7 @@ if 'best_schedule' in st.session_state:
             columns=['Preference Score (%)']
         ).sort_values(by='Preference Score (%)', ascending=False)
         st.dataframe(pref_scores_df.style.format("{:.2f}%"), use_container_width=True)
+
 
 
 
