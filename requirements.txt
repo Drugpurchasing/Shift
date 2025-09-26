@@ -4,3 +4,4 @@ numpy
 openpyxl
 PyGithub
 st_gsheets_connection
+xlrd
