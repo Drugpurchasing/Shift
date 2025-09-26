@@ -68,6 +68,8 @@ def process_drug_rate_analysis(data_files, master_file):
 
     # 4. Merging and Transformations
     merged_df = pd.merge(stacked_df, dfmaster, on="Material", how="left")
+
+        merged_df['Store'] = merged_df['Store'].astype('object')
     
     valid_store_values = [2403, 2401, 2408, 2409, 2417, 2402]
     merged_df.loc[~merged_df["Store"].isin(valid_store_values), "Store"] = "อื่นๆ"
