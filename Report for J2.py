@@ -3,11 +3,21 @@ import pandas as pd
 import io
 import numpy as np
 from PyPDF2 import PdfMerger
-from openpyxl.styles import Alignment, Font  # เพิ่ม Library สำหรับฟังก์ชันใหม่
+from openpyxl.styles import Alignment, Font
+from PIL import Image
+
+# ==============================================================================
+# Page Configuration (ต้องเป็นคำสั่งแรก)
+# ==============================================================================
+st.set_page_config(
+    page_title="CRA Analytics Suite",
+    page_icon="🔬",
+    layout="wide"
+)
 
 
 # ==============================================================================
-# FUNCTION 1-5 (โค้ดฟังก์ชันเดิม 5 ฟังก์ชัน ไม่มีการเปลี่ยนแปลง)
+# Functions 1-7 (โค้ดฟังก์ชันเดิมทั้งหมด ไม่มีการเปลี่ยนแปลง Logic)
 # ==============================================================================
 def process_j2_report(uploaded_files):
     # (โค้ดฟังก์ชันนี้เหมือนเดิมจากครั้งก่อน)
@@ -259,68 +269,44 @@ def process_kpi_report(rate_file, inventory_file, master_file):
     return {'ยอดขาย-คงคลัง-สำรองคงคลัง': remainFinal, 'ยอดขาย': grouped_sumRate_df, 'Raw': merged_df}
 
 
-# ==============================================================================
-# FUNCTION 6: วิเคราะห์ ABC (ABC Analysis) - NEW FUNCTION
-# ==============================================================================
 def process_abc_analysis(inventory_files, master_file):
-    """
-    Performs ABC analysis and generates a fully formatted Excel report in memory.
-    """
-    # --- Part 1: Data Loading and Consolidation ---
     try:
         all_dfs = [pd.read_excel(fp) for fp in inventory_files]
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
         master_df = pd.read_excel(master_file, sheet_name='Drug master', usecols=['Material', 'Drug group'])
         master_df['Material'] = master_df['Material'].astype(str)
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์: {e}")
-        return None
-
-    # --- Part 2: Main Analysis Logic (perform_abc_analysis) ---
-    df = consolidated_df
-    df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
+        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์: {e}"); return None
+    df = consolidated_df;
+    df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce');
     df.dropna(subset=['Posting Date'], inplace=True)
-    df['MonthYear'] = df['Posting Date'].dt.to_period('M')
+    df['MonthYear'] = df['Posting Date'].dt.to_period('M');
     df['Amt.in Loc.Cur.'] = pd.to_numeric(df['Amt.in Loc.Cur.'], errors='coerce').fillna(0)
-    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
+    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0);
     df['Material'] = df['Material'].astype(str)
-
     monthly_data = df.groupby(['Material', 'Material description', 'Storage location', 'MonthYear']).agg(
-        MonthlyNetConsumption=('Amt.in Loc.Cur.', 'sum'),
-        MonthlyNetQuantity=('Quantity', 'sum')
-    ).reset_index()
-
-    monthly_qty_pivot = monthly_data.pivot_table(
-        index=['Material', 'Material description', 'Storage location'],
-        columns='MonthYear', values='MonthlyNetQuantity', fill_value=0
-    )
-    monthly_qty_pivot.columns = [f"Qty_{str(col)}" for col in monthly_qty_pivot.columns]
+        MonthlyNetConsumption=('Amt.in Loc.Cur.', 'sum'), MonthlyNetQuantity=('Quantity', 'sum')).reset_index()
+    monthly_qty_pivot = monthly_data.pivot_table(index=['Material', 'Material description', 'Storage location'],
+                                                 columns='MonthYear', values='MonthlyNetQuantity', fill_value=0)
+    monthly_qty_pivot.columns = [f"Qty_{str(col)}" for col in monthly_qty_pivot.columns];
     monthly_qty_pivot = monthly_qty_pivot.abs()
-
     final_agg = monthly_data.groupby(['Material', 'Material description', 'Storage location']).agg(
         AvgMonthlyNetQuantity=('MonthlyNetQuantity', 'mean'),
-        TotalNetConsumption=('MonthlyNetConsumption', 'sum')
-    ).reset_index()
-
+        TotalNetConsumption=('MonthlyNetConsumption', 'sum')).reset_index()
     final_agg['AvgMonthlyNetQuantity'] = final_agg['AvgMonthlyNetQuantity'].abs()
     final_agg = pd.merge(final_agg, monthly_qty_pivot, on=['Material', 'Material description', 'Storage location'],
                          how='left')
     final_agg['NetConsumptionValue'] = final_agg['TotalNetConsumption'].abs()
     abc_data_no_class = final_agg[final_agg['NetConsumptionValue'] > 0].copy()
-
-    if abc_data_no_class.empty:
-        st.warning("ไม่พบข้อมูลการใช้งาน (consumption data) ที่มีมูลค่ามากกว่า 0")
-        return None
-
-    abc_data_no_class = pd.merge(abc_data_no_class, master_df, on='Material', how='left')
+    if abc_data_no_class.empty: st.warning("ไม่พบข้อมูลการใช้งาน (consumption data) ที่มีมูลค่ามากกว่า 0"); return None
+    abc_data_no_class = pd.merge(abc_data_no_class, master_df, on='Material', how='left');
     abc_data_no_class['Drug group'].fillna('N/A', inplace=True)
-
     all_locations_classified = []
     for location in abc_data_no_class['Storage location'].unique():
-        loc_df = abc_data_no_class[abc_data_no_class['Storage location'] == location].copy()
+        loc_df = abc_data_no_class[abc_data_no_class['Storage location'] == location].copy();
         total_value_loc = loc_df['NetConsumptionValue'].sum()
         loc_df = loc_df.sort_values(by='NetConsumptionValue', ascending=False).reset_index(drop=True)
-        loc_df['PercentageValue'] = loc_df['NetConsumptionValue'] / total_value_loc if total_value_loc > 0 else 0
+        loc_df['PercentageValue'] = loc_df['NetConsumptionValue'] / total_value_loc if total_value_loc > 0 else 0;
         loc_df['CumulativePercentage'] = loc_df['PercentageValue'].cumsum()
 
         def assign_abc_class(cum_perc):
@@ -331,17 +317,13 @@ def process_abc_analysis(inventory_files, master_file):
             else:
                 return 'C'
 
-        loc_df['ABC_Class'] = loc_df['CumulativePercentage'].apply(assign_abc_class)
+        loc_df['ABC_Class'] = loc_df['CumulativePercentage'].apply(assign_abc_class);
         all_locations_classified.append(loc_df)
-
     final_results = pd.concat(all_locations_classified)
-
-    # --- Part 3: Excel Report Generation (save_results_to_excel & apply_formats) ---
     output_buffer = io.BytesIO()
     with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-        # Helper function for formatting
         def apply_formats_and_hide_cols(writer, sheet_name, df):
-            worksheet = writer.sheets[sheet_name]
+            worksheet = writer.sheets[sheet_name];
             center_align = Alignment(horizontal='center', vertical='center')
             col_map = {'AvgMonthlyNetQuantity': '#,##0', 'NetConsumptionValue': '#,##0.00', 'PercentageValue': '0.00%',
                        'CumulativePercentage': '0.00%'}
@@ -360,92 +342,112 @@ def process_abc_analysis(inventory_files, master_file):
                     col_letters[col_name]].hidden = True
             for col in worksheet.columns:
                 if not worksheet.column_dimensions[col[0].column_letter].hidden:
-                    max_length = max(len(str(cell.value)) for cell in col if cell.value)
+                    max_length = max(len(str(cell.value)) for cell in col if cell.value);
                     worksheet.column_dimensions[col[0].column_letter].width = max_length + 2
 
-        # 1. Executive Summary Sheet
-        worksheet = writer.book.create_sheet("Executive Summary", 0)
-        writer.sheets['Executive Summary'] = worksheet
+        worksheet = writer.book.create_sheet("Executive Summary", 0);
+        writer.sheets['Executive Summary'] = worksheet;
         current_row = 1
         summary_abc_count = final_results.groupby(['Storage location', 'ABC_Class']).size().unstack(fill_value=0)
         for c in ['A', 'B', 'C']:
             if c not in summary_abc_count: summary_abc_count[c] = 0
-        summary_abc_count = summary_abc_count[['A', 'B', 'C']]
-        summary_abc_count['Total'] = summary_abc_count.sum(axis=1)
+        summary_abc_count = summary_abc_count[['A', 'B', 'C']];
+        summary_abc_count['Total'] = summary_abc_count.sum(axis=1);
         summary_abc_count.loc['Total'] = summary_abc_count.sum()
-        worksheet.cell(row=current_row, column=1, value='สรุปจำนวนรายการ A, B, C ในแต่ละคลัง').font = Font(bold=True)
+        worksheet.cell(row=current_row, column=1, value='สรุปจำนวนรายการ A, B, C ในแต่ละคลัง').font = Font(bold=True);
         current_row += 1
-        summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0)
+        summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0);
         current_row += summary_abc_count.shape[0] + 3
-
         worksheet.cell(row=current_row, column=1,
                        value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(
-            bold=True)
+            bold=True);
         current_row += 1
         top_groups = final_results.groupby('Storage location').apply(
             lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
         top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
-        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
+        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False);
         current_row += top_groups.shape[0] + 3
-
         worksheet.cell(row=current_row, column=1,
-                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
+                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True);
         current_row += 1
         top_items = final_results.groupby('Storage location').apply(
             lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(
                 5)).reset_index()
         top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
         top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
-
-        # 2. Individual Location Sheets
         for location in final_results['Storage location'].unique():
-            sheet_df = final_results[final_results['Storage location'] == location].copy()
+            sheet_df = final_results[final_results['Storage location'] == location].copy();
             sheet_name = f'SLoc_{location}'
             monthly_cols = sorted([col for col in sheet_df.columns if isinstance(col, str) and col.startswith('Qty_')])
             output_columns = ['Material', 'Material description', 'Storage location'] + monthly_cols + [
                 'AvgMonthlyNetQuantity', 'NetConsumptionValue', 'PercentageValue', 'CumulativePercentage', 'ABC_Class',
                 'Drug group']
-            sheet_df = sheet_df[output_columns]
+            sheet_df = sheet_df[output_columns];
             sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
             apply_formats_and_hide_cols(writer, sheet_name, sheet_df)
-
     return output_buffer.getvalue()
 
 
 # ==============================================================================
 # STREAMLIT USER INTERFACE (UI)
 # ==============================================================================
-st.set_page_config(layout="wide")
 
-st.sidebar.title("⚙️ เลือกเมนู")
+# --- Sidebar ---
+# st.sidebar.image("path/to/your/logo.png", width=150) # <-- ใส่ Path รูปโลโก้ของคุณที่นี่
+st.sidebar.title("CRA Analytics Suite")
+st.sidebar.markdown("---")
+
 app_mode = st.sidebar.selectbox(
     "โปรดเลือกฟังก์ชันที่ต้องการ:",
-    ["หน้าหลัก", "1. รายงานยา จ2", "2. รายงานขายยาประจำเดือน", "3. รายงานยา EPI", "4. รายงานยาเสพติดและวัตถุออกฤทธิ์",
-     "5. รายงาน KPI", "6. รวมไฟล์ PDF", "7. วิเคราะห์ ABC"]
+    ["🏠 หน้าหลัก", "📊 1. รายงานยา จ2", "📈 2. รายงานขายยาประจำเดือน", "💉 3. รายงานยา EPI", "💊 4. รายงานยาเสพติดฯ",
+     "🎯 5. รายงาน KPI", "📄 6. รวมไฟล์ PDF", "🔤 7. วิเคราะห์ ABC"]
 )
 
-if app_mode == "หน้าหลัก":
-    st.title("ยินดีต้อนรับสู่แอปพลิเคชันประมวลผลข้อมูล")
-    st.markdown("กรุณาเลือกฟังก์ชันจากเมนูด้านซ้ายเพื่อเริ่มต้น")
-    st.markdown("- **1. รายงานยา จ2**: รวมไฟล์และกรองยาตามรายการที่กำหนด (J2)")
-    st.markdown("- **2. รายงานขายยาประจำเดือน**: วิเคราะห์ข้อมูลยาโดยละเอียดพร้อมไฟล์ Master")
-    st.markdown("- **3. รายงานยา EPI**: สรุปยอดการใช้ยาตามรายการ EPI")
-    st.markdown("- **4. รายงานยาเสพติดและวัตถุออกฤทธิ์**: สร้างรายงานยาเสพติดฯ")
-    st.markdown("- **5. รายงาน KPI**: คำนวณวันสำรองคงคลังจากข้อมูลยอดขายและยอดคงคลัง")
-    st.markdown("- **6. รวมไฟล์ PDF**: รวมไฟล์ PDF หลายไฟล์ให้เป็นไฟล์เดียว")
-    st.markdown("- **7. วิเคราะห์ ABC**: จัดกลุ่มยาตามมูลค่าการใช้งานและสร้างรายงานสรุป")
+# --- Main Page ---
+if app_mode == "🏠 หน้าหลัก":
+    st.title("🔬 CRA Analytics Suite")
+    st.markdown("ยินดีต้อนรับสู่เครื่องมือวิเคราะห์และประมวลผลข้อมูลสำหรับงานเภสัชกรรม")
+    st.markdown("---")
 
-elif app_mode == "1. รายงานยา จ2":
-    st.title("Tool 1: รายงานยา จ2");
-    st.info("ฟังก์ชันนี้จะรวมไฟล์ข้อมูลดิบ (.xls) จากนั้นกรองรายการยาตามที่กำหนดสำหรับรายงาน จ2")
+    st.subheader("เครื่องมือทั้งหมด")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.info("📊 **รายงานยา จ2**")
+        st.write("รวมไฟล์และกรองยาตามรายการที่กำหนด (J2)")
+
+        st.info("💊 **รายงานยาเสพติดฯ**")
+        st.write("สร้างรายงานยาเสพติดจากการจ่าย, การรับเข้า, และไฟล์ Master")
+
+        st.info("🔤 **วิเคราะห์ ABC**")
+        st.write("จัดกลุ่มยาตามมูลค่าการใช้งานและสร้างรายงานสรุป")
+
+    with col2:
+        st.info("📈 **รายงานขายยาประจำเดือน**")
+        st.write("วิเคราะห์ข้อมูลยาโดยละเอียดพร้อมไฟล์ Master")
+
+        st.info("🎯 **รายงาน KPI**")
+        st.write("คำนวณวันสำรองคงคลังจากข้อมูลยอดขายและยอดคงคลัง")
+
+    with col3:
+        st.info("💉 **รายงานยา EPI**")
+        st.write("สรุปยอดการใช้ยาตามรายการ EPI")
+
+        st.info("📄 **รวมไฟล์ PDF**")
+        st.write("รวมไฟล์ PDF หลายไฟล์ให้เป็นไฟล์เดียว")
+
+elif "1. รายงานยา จ2" in app_mode:
+    st.header("📊 1. รายงานยา จ2")
+    st.markdown("---")
+    st.info("**ขั้นตอน:** อัปโหลดไฟล์ข้อมูลดิบ (.xls) จากนั้นกดปุ่มประมวลผล")
     uploaded_files_j2 = st.file_uploader("อัปโหลดไฟล์ข้อมูลดิบของคุณ (*.xls)", type="xls", accept_multiple_files=True,
                                          key="j2_uploader")
-    if st.button("ประมวลผลรายงาน จ2", key="j2_button"):
+    if st.button("🚀 ประมวลผลรายงาน จ2", key="j2_button", use_container_width=True):
         if uploaded_files_j2:
             with st.spinner("กำลังประมวลผล..."):
                 final_df = process_j2_report(uploaded_files_j2)
             if final_df is not None:
-                st.success("✅ ประมวลผลสำเร็จ!");
+                st.success("✅ ประมวลผลสำเร็จ!")
                 st.dataframe(final_df)
                 output_buffer = io.BytesIO()
                 with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer: final_df.to_excel(writer,
@@ -456,21 +458,27 @@ elif app_mode == "1. รายงานยา จ2":
         else:
             st.warning("⚠️ กรุณาอัปโหลดไฟล์ข้อมูล")
 
-elif app_mode == "2. รายงานขายยาประจำเดือน":
-    st.title("Tool 2: รายงานขายยาประจำเดือน");
-    st.info("ฟังก์ชันนี้ต้องการทั้งไฟล์ข้อมูลดิบ (.xls) และไฟล์ Drug Master (.xlsx)")
+elif "2. รายงานขายยาประจำเดือน" in app_mode:
+    st.header("📈 2. รายงานขายยาประจำเดือน")
+    st.markdown("---")
+    st.info("""
+        **ขั้นตอนการใช้งาน:**
+        1. **อัปโหลดไฟล์ข้อมูลดิบ:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการเบิกจ่ายยา (เลือกหลายไฟล์ได้)
+        2. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
+        3. **กดปุ่ม 'เริ่มการวิเคราะห์'**
+    """)
     col1, col2 = st.columns(2)
     with col1:
         uploaded_files_raw = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลดิบ (*.xls)", type="xls", accept_multiple_files=True,
                                               key="raw_uploader")
     with col2:
         master_file = st.file_uploader("2. อัปโหลดไฟล์ Drug Master (*.xlsx)", type=["xlsx"], key="master_uploader")
-    if st.button("🚀 เริ่มการวิเคราะห์", key="analysis_button"):
+    if st.button("🚀 เริ่มการวิเคราะห์", key="analysis_button", use_container_width=True):
         if uploaded_files_raw and master_file:
             with st.spinner("กำลังวิเคราะห์ข้อมูล..."):
                 raw_df, output_dfs = process_drug_rate_analysis(uploaded_files_raw, master_file)
             if raw_df is not None:
-                st.success("✅ วิเคราะห์สำเร็จ!");
+                st.success("✅ วิเคราะห์สำเร็จ!")
                 output_buffer = io.BytesIO()
                 with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
                     for sheet_name, df_to_save in output_dfs.items():
@@ -484,22 +492,22 @@ elif app_mode == "2. รายงานขายยาประจำเดื�
                 st.download_button(label="📥 ดาวน์โหลดรายงานวิเคราะห์", data=output_buffer.getvalue(),
                                    file_name="Drugstore_Rate.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                st.subheader("📊 ดูตัวอย่างผลลัพธ์");
-                tab1, tab2, tab3 = st.tabs(["Rate by Month", "Cases per Month", "Raw Merged Data"])
-                with tab1:
-                    st.dataframe(output_dfs["Rate แยกเดือน"]); 
-                with tab2: st.dataframe(output_dfs["จำนวนเคสต่อเดือน"]);
-                with tab3:
-                    st.dataframe(raw_df)
+                st.subheader("📊 ดูตัวอย่างผลลัพธ์")
+                with st.expander("คลิกเพื่อดูตัวอย่างข้อมูล"):
+                    tab1, tab2, tab3 = st.tabs(["Rate by Month", "Cases per Month", "Raw Merged Data"])
+                    with tab1: st.dataframe(output_dfs["Rate แยกเดือน"])
+                    with tab2: st.dataframe(output_dfs["จำนวนเคสต่อเดือน"])
+                    with tab3: st.dataframe(raw_df)
         else:
             st.warning("⚠️ กรุณาอัปโหลดทั้งไฟล์ข้อมูลดิบและไฟล์ Drug Master")
 
-elif app_mode == "3. รายงานยา EPI":
-    st.title("Tool 3: รายงานยา EPI");
-    st.info("ฟังก์ชันนี้จะรวมไฟล์ข้อมูลดิบ (.xls) จากนั้นกรองเฉพาะรายการยา EPI และสรุปยอดการใช้งานทั้งหมด")
+elif "3. รายงานยา EPI" in app_mode:
+    st.header("💉 3. รายงานยา EPI")
+    st.markdown("---")
+    st.info("**ขั้นตอน:** อัปโหลดไฟล์ข้อมูลดิบ (.xls) จากนั้นกดปุ่มประมวลผล")
     uploaded_files_epi = st.file_uploader("อัปโหลดไฟล์ข้อมูลดิบของคุณ (*.xls)", type="xls", accept_multiple_files=True,
                                           key="epi_uploader")
-    if st.button("ประมวลผลรายงาน EPI", key="epi_button"):
+    if st.button("🚀 ประมวลผลรายงาน EPI", key="epi_button", use_container_width=True):
         if uploaded_files_epi:
             with st.spinner("กำลังประมวลผล..."):
                 final_df = process_epi_usage(uploaded_files_epi)
@@ -517,9 +525,16 @@ elif app_mode == "3. รายงานยา EPI":
         else:
             st.warning("⚠️ กรุณาอัปโหลดไฟล์ข้อมูล")
 
-elif app_mode == "4. รายงานยาเสพติดและวัตถุออกฤทธิ์":
-    st.title("Tool 4: รายงานยาเสพติดและวัตถุออกฤทธิ์");
-    st.info("ฟังก์ชันนี้ต้องการไฟล์ 3 ชุด: ข้อมูลการจ่ายยา, รายงานรับเข้า, และ Drug Master")
+elif "4. รายงานยาเสพติดฯ" in app_mode:
+    st.header("💊 4. รายงานยาเสพติดและวัตถุออกฤทธิ์")
+    st.markdown("---")
+    st.info("""
+        **ขั้นตอนการใช้งาน:**
+        1. **อัปโหลดไฟล์ข้อมูลการจ่ายยา:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการจ่ายยา (เลือกหลายไฟล์ได้)
+        2. **อัปโหลดไฟล์รายงานรับเข้า:** เลือกไฟล์ Excel (.xlsx) ที่เป็นรายงานการรับเข้า
+        3. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
+        4. **กดปุ่ม 'ประมวลผลรายงานยาเสพติด'**
+    """)
     col1, col2, col3 = st.columns(3)
     with col1:
         xls_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการจ่ายยา (*.xls)", type="xls", accept_multiple_files=True,
@@ -530,7 +545,7 @@ elif app_mode == "4. รายงานยาเสพติดและวั�
     with col3:
         master_file_narcotics = st.file_uploader("3. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
                                                  key="narcotics_master_uploader")
-    if st.button("🚀 ประมวลผลรายงานยาเสพติด", key="narcotics_button"):
+    if st.button("🚀 ประมวลผลรายงานยาเสพติด", key="narcotics_button", use_container_width=True):
         if xls_files and receipt_file and master_file_narcotics:
             with st.spinner("กำลังประมวลผล..."):
                 output_data = process_narcotics_report(xls_files, receipt_file, master_file_narcotics)
@@ -542,19 +557,24 @@ elif app_mode == "4. รายงานยาเสพติดและวั�
                 st.download_button(label="📥 ดาวน์โหลดรายงานยาเสพติด.xlsx", data=output_buffer.getvalue(),
                                    file_name="รายงานการรับเข้าและจ่าย.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                st.subheader("📊 ดูตัวอย่างผลลัพธ์");
-                tab1, tab2, tab3 = st.tabs(output_data.keys())
-                with tab1:
-                    st.dataframe(output_data['รายงานแยก']);
-                with tab2: st.dataframe(output_data['รายงานรวม']);
-                with tab3:
-                    st.dataframe(output_data['รายงานรับเข้า'])
+                with st.expander("คลิกเพื่อดูตัวอย่างข้อมูล"):
+                    tab1, tab2, tab3 = st.tabs(output_data.keys())
+                    with tab1: st.dataframe(output_data['รายงานแยก']);
+                    with tab2: st.dataframe(output_data['รายงานรวม']);
+                    with tab3: st.dataframe(output_data['รายงานรับเข้า'])
         else:
             st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 3 ส่วน")
 
-elif app_mode == "5. รายงาน KPI":
-    st.title("Tool 5: รายงาน KPI");
-    st.info("ฟังก์ชันนี้ต้องการไฟล์ 3 ชุด: Rate, ยอดคงคลัง, และ Drug Master เพื่อคำนวณวันสำรองคงคลัง")
+elif "5. รายงาน KPI" in app_mode:
+    st.header("🎯 5. รายงาน KPI")
+    st.markdown("---")
+    st.info("""
+        **ขั้นตอนการใช้งาน:**
+        1. **อัปโหลดไฟล์ Rate:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการเบิกจ่ายยา
+        2. **อัปโหลดไฟล์ยอดคงคลัง:** เลือกไฟล์ Excel (.xlsx) ที่มียอดคงคลังสิ้นเดือน
+        3. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
+        4. **กดปุ่ม 'ประมวลผล KPI'**
+    """)
     col1, col2, col3 = st.columns(3)
     with col1:
         rate_file = st.file_uploader("1. อัปโหลดไฟล์ Rate (*.xls)", type="xls", key="kpi_rate_uploader")
@@ -564,7 +584,7 @@ elif app_mode == "5. รายงาน KPI":
     with col3:
         master_file_kpi = st.file_uploader("3. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
                                            key="kpi_master_uploader")
-    if st.button("🚀 ประมวลผล KPI", key="kpi_button"):
+    if st.button("🚀 ประมวลผล KPI", key="kpi_button", use_container_width=True):
         if rate_file and inventory_file and master_file_kpi:
             with st.spinner("กำลังคำนวณ KPI..."):
                 output_data = process_kpi_report(rate_file, inventory_file, master_file_kpi)
@@ -576,23 +596,27 @@ elif app_mode == "5. รายงาน KPI":
                 st.download_button(label="📥 ดาวน์โหลดรายงาน KPI.xlsx", data=output_buffer.getvalue(),
                                    file_name="KPI_Report.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                st.subheader("📊 ดูตัวอย่างผลลัพธ์");
-                tab1, tab2, tab3 = st.tabs(output_data.keys())
-                with tab1:
-                    st.dataframe(output_data['ยอดขาย-คงคลัง-สำรองคงคลัง']);
-                with tab2: st.dataframe(output_data['ยอดขาย']);
-                with tab3:
-                    st.dataframe(output_data['Raw'])
+                with st.expander("คลิกเพื่อดูตัวอย่างข้อมูล"):
+                    tab1, tab2, tab3 = st.tabs(output_data.keys())
+                    with tab1: st.dataframe(output_data['ยอดขาย-คงคลัง-สำรองคงคลัง']);
+                    with tab2: st.dataframe(output_data['ยอดขาย']);
+                    with tab3: st.dataframe(output_data['Raw'])
         else:
             st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 3 ส่วน")
 
-elif app_mode == "6. รวมไฟล์ PDF":
-    st.title("Tool 6: รวมไฟล์ PDF");
-    st.info("อัปโหลดไฟล์ PDF หลายไฟล์เพื่อรวมเป็นไฟล์เดียว")
+elif "6. รวมไฟล์ PDF" in app_mode:
+    st.header("📄 6. รวมไฟล์ PDF")
+    st.markdown("---")
+    st.info("""
+        **ขั้นตอนการใช้งาน:**
+        1. **เลือกไฟล์ PDF:** เลือกไฟล์ PDF ที่ต้องการรวม (เลือกหลายไฟล์ได้)
+        2. **ตั้งชื่อไฟล์ผลลัพธ์:** กรอกชื่อไฟล์ใหม่ที่ต้องการ (ไม่ต้องใส่นามสกุล .pdf)
+        3. **กดปุ่ม 'รวมไฟล์ PDF'**
+    """)
     uploaded_pdfs = st.file_uploader("1. เลือกไฟล์ PDF ที่ต้องการรวม", type="pdf", accept_multiple_files=True,
                                      key="pdf_uploader")
-    output_filename = st.text_input("2. ตั้งชื่อไฟล์ผลลัพธ์ (ไม่ต้องใส่ .pdf)", "merged_output", key="pdf_output_name")
-    if st.button("รวมไฟล์ PDF", key="pdf_merge_button"):
+    output_filename = st.text_input("2. ตั้งชื่อไฟล์ผลลัพธ์", "merged_output", key="pdf_output_name")
+    if st.button("🚀 รวมไฟล์ PDF", key="pdf_merge_button", use_container_width=True):
         if uploaded_pdfs and output_filename:
             with st.spinner("กำลังรวมไฟล์ PDF..."):
                 merger = PdfMerger();
@@ -607,31 +631,26 @@ elif app_mode == "6. รวมไฟล์ PDF":
         else:
             st.warning("⚠️ กรุณาอัปโหลดไฟล์ PDF และตั้งชื่อไฟล์ผลลัพธ์")
 
-elif app_mode == "7. วิเคราะห์ ABC":
-    st.title("Tool 7: วิเคราะห์ ABC (ABC Analysis)")
-    st.info(
-        "ฟังก์ชันนี้ต้องการไฟล์ข้อมูลการใช้งาน (Inventory Data) และไฟล์ Drug Master เพื่อจัดกลุ่มยาตามมูลค่าการใช้งาน (A, B, C)")
-
+elif "7. วิเคราะห์ ABC" in app_mode:
+    st.header("🔤 7. วิเคราะห์ ABC (ABC Analysis)")
+    st.markdown("---")
+    st.info("""
+        **ขั้นตอนการใช้งาน:**
+        1. **อัปโหลดไฟล์ข้อมูลการใช้งาน:** เลือกไฟล์ Excel (.xls, .xlsx) ที่มีข้อมูลการเบิกจ่ายยา (เลือกหลายไฟล์ได้)
+        2. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูล 'Drug group'
+        3. **กดปุ่ม 'เริ่มการวิเคราะห์ ABC'**
+    """)
     col1, col2 = st.columns(2)
     with col1:
-        inventory_files = st.file_uploader(
-            "1. อัปโหลดไฟล์ข้อมูลการใช้งาน (หลายไฟล์ได้)",
-            type=["xlsx", "xls"],
-            accept_multiple_files=True,
-            key="abc_inventory_uploader"
-        )
+        inventory_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการใช้งาน", type=["xlsx", "xls"],
+                                           accept_multiple_files=True, key="abc_inventory_uploader")
     with col2:
-        master_file_abc = st.file_uploader(
-            "2. อัปโหลดไฟล์ Drug Master (*.xlsx)",
-            type="xlsx",
-            key="abc_master_uploader"
-        )
-
-    if st.button("🚀 เริ่มการวิเคราะห์ ABC", key="abc_button"):
+        master_file_abc = st.file_uploader("2. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
+                                           key="abc_master_uploader")
+    if st.button("🚀 เริ่มการวิเคราะห์ ABC", key="abc_button", use_container_width=True):
         if inventory_files and master_file_abc:
             with st.spinner("กำลังทำการวิเคราะห์ ABC... กระบวนการนี้อาจใช้เวลาสักครู่"):
                 report_bytes = process_abc_analysis(inventory_files, master_file_abc)
-
             if report_bytes:
                 st.success("✅ การวิเคราะห์ ABC เสร็จสมบูรณ์และสร้างรายงานสำเร็จ!")
                 st.download_button(
