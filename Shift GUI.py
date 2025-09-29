@@ -1840,7 +1840,7 @@ with st.sidebar:
         excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
         st.info("โปรแกรมจะดึงข้อมูล **เภสัชกร** จาก Google Sheet โดยอัตโนมัติ")
     else:  # จัดเวรผู้ช่วยเภสัชกร
-        excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPgQYdZf6k7sQG1o-r-P7Awbwz2f5T2gWz-b8d9V4j_c-Q6c7L3wYkK9b7X2tH7g/pub?output=xlsx"
+        excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdfJ47lznKm89OatoeciaWoXTXoTtakCaLIDXWYRCZ1hqEy91YBoK80Ih7EosfDQ/pub?output=xlsx"
         st.info("โปรแกรมจะดึงข้อมูล **ผู้ช่วยเภสัชกร** จาก Google Sheet โดยอัตโนมัติ")
 
     mode = st.radio(
