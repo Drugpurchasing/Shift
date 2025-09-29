@@ -2072,7 +2072,8 @@ def generate_assistant_html_summary(schedule, scheduler):
 # --- Streamlit UI and Main Execution Logic ---
 
 st.set_page_config(layout="wide", page_title="IPSSS", page_icon="⚕️")
-st.title("⚕️ Intelligent Pharmacy Scheduling Support System")
+st.image("https://github.com/Drugpurchasing/Shift/blob/main/IPSS.png?raw=true", width=100)
+st.title("Intelligent Pharmacy Scheduling Support System")
 
 # --- Sidebar for Inputs ---
 with st.sidebar:
