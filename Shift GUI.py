@@ -2076,7 +2076,7 @@ st.title("⚕️ Intelligent Pharmacy Scheduling Support System")
 
 # --- Sidebar for Inputs ---
 with st.sidebar:
-    st.image("https://github.com/Drugpurchasing/Shift/blob/main/IPSSS.png?raw=true", width=100)
+    st.image("https://github.com/Drugpurchasing/Shift/blob/main/IPSS.png?raw=true", width=100)
     st.title("⚙️ ตั้งค่า")
 
     scheduler_type = st.selectbox(
