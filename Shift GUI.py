@@ -1846,8 +1846,31 @@ def generate_pharmacist_html_summary(schedule, scheduler):
                            "ภญ.จุฑามาศ (กวาง)", 'ภญ. ณัฐพร (แอม)']
     sorted_dates = sorted(schedule.index)
 
-    html = "<style> table, th, td { border: 1px solid #CCCCCC; border-collapse: collapse; text-align: center; vertical-align: middle; padding: 4px; font-family: sans-serif; font-size: 12px; } th { font-weight: bold; } .note { font-style: italic; font-size: 10px; word-wrap: break-word; } </style>"
-    html += "<table><thead><tr><th style='width: 200px; background-color: {bg};'>Pharmacist</th>".format(
+    html = """
+    <style>
+        table, th, td {
+            border: 1px solid #CCCCCC;
+            border-collapse: collapse;
+            text-align: center;
+            vertical-align: middle;
+            padding: 4px;
+            font-family: sans-serif;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        th { font-weight: bold; }
+        .name-col { width: 180px; }
+        .date-col { width: 45px; }
+        .note { 
+            font-style: italic; 
+            font-size: 10px; 
+            word-wrap: break-word; 
+            white-space: normal;
+            line-height: 1.1;
+        }
+    </style>
+    """
+    html += "<table><thead><tr><th class='name-col' style='background-color: {bg};'>Pharmacist</th>".format(
         bg=styles['header_fill'])
     for date in sorted_dates:
         bg_color = styles['header_fill']
@@ -1855,61 +1878,67 @@ def generate_pharmacist_html_summary(schedule, scheduler):
             bg_color = styles['holiday_fill']
         elif date.weekday() >= 5:
             bg_color = styles['weekend_fill']
-        html += f"<th style='background-color: {bg_color};'>{date.strftime('%d/%m')}</th>"
+        html += f"<th class='date-col' style='background-color: {bg_color};'>{date.strftime('%d/%m')}</th>"
     html += "</tr></thead><tbody>"
 
     for pharmacist in ordered_pharmacists:
         if pharmacist not in scheduler.pharmacists: continue
-        html += f"""
-            <tr>
-                <td rowspan="3" style='background-color: {styles['header_fill']}; font-weight: bold;'>{pharmacist}</td>
-        """
-        # Row 1: Notes
+
+        # Build rows first to handle coloring of note cell
+        row1_cells, row2_cells, row3_cells = "", "", ""
+
         for date in sorted_dates:
             date_str = date.strftime('%Y-%m-%d')
-            note_text = scheduler.special_notes.get(pharmacist, {}).get(date_str, '')
-            is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not scheduler.get_pharmacist_shifts(
-                pharmacist, date, schedule)
-            bg_color = styles['holiday_empty_fill'] if is_off_day and not (
-                        date_str in scheduler.pharmacists[pharmacist]['holidays']) else '#FFFFFF'
-            html += f"<td style='height: 30px; background-color:{bg_color};'><div class='note'>{note_text}</div></td>"
-        html += "</tr>"
+            shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule)
+            is_personal_holiday = date_str in scheduler.pharmacists[pharmacist]['holidays']
+            is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
+            note_text = scheduler.special_notes.get(pharmacist, {}).get(date_str, '&nbsp;')
 
-        # Rows 2 & 3: Shifts
-        for r in range(2):
-            html += "<tr>"
-            for date in sorted_dates:
-                shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule)
-                date_str = date.strftime('%Y-%m-%d')
-                is_personal_holiday = date_str in scheduler.pharmacists[pharmacist]['holidays']
+            # Default colors
+            note_bg, cell1_bg, cell2_bg = '#FFFFFF', '#FFFFFF', '#FFFFFF'
+            cell1_content, cell2_content = '&nbsp;', '&nbsp;'
+            cell1_font_color, cell2_font_color = styles['font_colors']['default'], styles['font_colors']['default']
 
-                content, bg_color, font_color = '', '#FFFFFF', styles['font_colors']['default']
+            if is_personal_holiday:
+                note_bg = cell1_bg = cell2_bg = styles['off_fill']
+                cell2_content = 'X'
+            else:
+                if len(shifts) == 1:
+                    shift = shifts[0]
+                    cell2_content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
+                        shift) else str(int(scheduler.shift_types[shift]['hours']))
+                    prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                    if prefix:
+                        note_bg = cell1_bg = cell2_bg = styles['fills'][prefix]
+                        cell2_font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
+                elif len(shifts) > 1:
+                    # Cell 1 (bottom in excel)
+                    shift1 = shifts[1]
+                    cell1_content = f"{int(scheduler.shift_types[shift1]['hours'])}N" if scheduler.is_night_shift(
+                        shift1) else str(int(scheduler.shift_types[shift1]['hours']))
+                    prefix1 = next((p for p in styles['fills'] if shift1.startswith(p)), None)
+                    if prefix1:
+                        cell1_bg = styles['fills'][prefix1]
+                        cell1_font_color = styles['font_colors'].get(prefix1, styles['font_colors']['default'])
+                    # Cell 2 (top in excel)
+                    shift2 = shifts[0]
+                    cell2_content = f"{int(scheduler.shift_types[shift2]['hours'])}N" if scheduler.is_night_shift(
+                        shift2) else str(int(scheduler.shift_types[shift2]['hours']))
+                    prefix2 = next((p for p in styles['fills'] if shift2.startswith(p)), None)
+                    if prefix2:
+                        cell2_bg = styles['fills'][prefix2]
+                        cell2_font_color = styles['font_colors'].get(prefix2, styles['font_colors']['default'])
 
-                if is_personal_holiday:
-                    content, bg_color = ('X' if r == 1 else ''), styles['off_fill']
-                else:
-                    shift_index = r if len(shifts) > 1 else 0
-                    if (r == 1 and len(shifts) > 0) or (r == 0 and len(shifts) > 1):
-                        shift = shifts[shift_index]
-                        content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
-                            shift) else str(int(scheduler.shift_types[shift]['hours']))
-                        prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
-                        if prefix:
-                            bg_color = styles['fills'][prefix]
-                            font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
-                            # If only one shift, color both cells
-                            if len(shifts) == 1:
-                                html = html.replace(
-                                    f"<td style='height: 30px; background-color:#FFFFFF;'><div class='note'>{scheduler.special_notes.get(pharmacist, {}).get(date_str, '')}</div></td>",
-                                    f"<td style='height: 30px; background-color:{bg_color};'><div class='note'>{scheduler.special_notes.get(pharmacist, {}).get(date_str, '')}</div></td>",
-                                    1)
+                if is_off_day:
+                    note_bg = cell1_bg = cell2_bg = styles['holiday_empty_fill']
 
-                    is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
-                    if is_off_day:
-                        bg_color = styles['holiday_empty_fill']
+            row1_cells += f"<td style='height: 25px; background-color:{note_bg};'><div class='note'>{note_text}</div></td>"
+            row2_cells += f"<td style='background-color:{cell1_bg}; color:{cell1_font_color}; font-weight: bold;'>{cell1_content}</td>"
+            row3_cells += f"<td style='background-color:{cell2_bg}; color:{cell2_font_color}; font-weight: bold;'>{cell2_content}</td>"
 
-                html += f"<td style='background-color:{bg_color}; color:{font_color}; font-weight: bold;'>{content}</td>"
-            html += "</tr>"
+        html += f"<tr><td rowspan='3' class='name-col' style='background-color: {styles['header_fill']}; font-weight: bold;'>{pharmacist}</td>{row1_cells}</tr>"
+        html += f"<tr>{row2_cells}</tr>"
+        html += f"<tr>{row3_cells}</tr>"
 
     html += "</tbody></table>"
     return html
@@ -1936,8 +1965,31 @@ def generate_assistant_html_summary(schedule, scheduler):
         , "ณัฐฎนิช (มิน)", "วรัญญา (อ้าย)", "ขวัญเนตร (เจเจ)", "มานะ (ตั๊ก)", "รัฎดาวรรณ (เชอรรี่)"]
     sorted_dates = sorted(schedule.index)
 
-    html = "<style> table, th, td { border: 1px solid #CCCCCC; border-collapse: collapse; text-align: center; vertical-align: middle; padding: 4px; font-family: sans-serif; font-size: 12px; } th { font-weight: bold; } .note { font-style: italic; font-size: 10px; } </style>"
-    html += "<table><thead><tr><th style='width: 200px; background-color: {bg};'>Assistant</th>".format(
+    html = """
+    <style>
+        table, th, td {
+            border: 1px solid #CCCCCC;
+            border-collapse: collapse;
+            text-align: center;
+            vertical-align: middle;
+            padding: 4px;
+            font-family: sans-serif;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        th { font-weight: bold; }
+        .name-col { width: 180px; }
+        .date-col { width: 45px; }
+        .note { 
+            font-style: italic; 
+            font-size: 10px; 
+            word-wrap: break-word; 
+            white-space: normal;
+            line-height: 1.1;
+        }
+    </style>
+    """
+    html += "<table><thead><tr><th class='name-col' style='background-color: {bg};'>Assistant</th>".format(
         bg=styles['header_fill'])
     for date in sorted_dates:
         bg_color = styles['header_fill']
@@ -1945,16 +1997,13 @@ def generate_assistant_html_summary(schedule, scheduler):
             bg_color = styles['holiday_fill']
         elif date.weekday() >= 5:
             bg_color = styles['weekend_fill']
-        html += f"<th style='background-color: {bg_color};'>{date.strftime('%d/%m')}</th>"
+        html += f"<th class='date-col' style='background-color: {bg_color};'>{date.strftime('%d/%m')}</th>"
     html += "</tr></thead><tbody>"
 
     for assistant in ordered_assistants:
         if assistant not in scheduler.assistants: continue
-        html += f"""
-            <tr>
-                <td rowspan="2" style='background-color: {styles['header_fill']}; font-weight: bold;'>{assistant}</td>
-        """
-        # Row 1: Notes or first shift
+        row1_cells, row2_cells = "", ""
+
         for date in sorted_dates:
             date_str = date.strftime('%Y-%m-%d')
             shifts = scheduler.get_assistant_shifts(assistant, date, schedule)
@@ -1962,58 +2011,59 @@ def generate_assistant_html_summary(schedule, scheduler):
             is_personal_holiday = date_str in scheduler.assistants[assistant]['holidays']
             is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
 
-            content, bg_color, font_color = '', '#FFFFFF', styles['font_colors']['default']
+            # Defaults
+            cell1_content, cell2_content = '&nbsp;', '&nbsp;'
+            cell1_bg, cell2_bg = '#FFFFFF', '#FFFFFF'
+            cell1_font_color, cell2_font_color = styles['font_colors']['default'], styles['font_colors']['default']
 
             if is_personal_holiday:
-                bg_color = styles['off_fill']
-            elif note_text:
-                content = f"<div class='note'>{note_text}</div>"
-            elif len(shifts) > 1:
-                shift = shifts[0]
-                content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(shift) else str(
-                    int(scheduler.shift_types[shift]['hours']))
-                prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
-                if prefix:
-                    bg_color = styles['fills'][prefix]
-                    font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
-            elif is_off_day:
-                bg_color = styles['holiday_empty_fill']
-            elif len(shifts) == 1:
-                shift = shifts[0]
-                prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
-                if prefix: bg_color = styles['fills'][prefix]
-
-            html += f"<td style='height: 30px; background-color:{bg_color}; color:{font_color}; font-weight: bold;'>{content}</td>"
-        html += "</tr>"
-
-        # Row 2: Second shift
-        html += "<tr>"
-        for date in sorted_dates:
-            date_str = date.strftime('%Y-%m-%d')
-            shifts = scheduler.get_assistant_shifts(assistant, date, schedule)
-            note_text = scheduler.special_notes.get(assistant, {}).get(date_str, '')
-            is_personal_holiday = date_str in scheduler.assistants[assistant]['holidays']
-            is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
-
-            content, bg_color, font_color = '', '#FFFFFF', styles['font_colors']['default']
-
-            if is_personal_holiday:
-                content, bg_color = 'X', styles['off_fill']
+                cell1_bg = cell2_bg = styles['off_fill']
+                cell2_content = 'OFF'
             else:
-                shift_index = 0 if note_text or len(shifts) == 1 else 1
-                if shifts and shift_index < len(shifts):
-                    shift = shifts[shift_index]
-                    content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
+                if note_text:
+                    cell1_content = f"<div class='note'>{note_text}</div>"
+                    if shifts:  # Note with one shift
+                        shift = shifts[0]
+                        cell2_content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
+                            shift) else str(int(scheduler.shift_types[shift]['hours']))
+                        prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                        if prefix:
+                            cell2_bg = styles['fills'][prefix]
+                            cell2_font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
+                elif len(shifts) == 1:
+                    shift = shifts[0]
+                    cell2_content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
                         shift) else str(int(scheduler.shift_types[shift]['hours']))
                     prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
                     if prefix:
-                        bg_color = styles['fills'][prefix]
-                        font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
-                elif is_off_day:
-                    bg_color = styles['holiday_empty_fill']
+                        cell1_bg = cell2_bg = styles['fills'][prefix]
+                        cell2_font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
+                elif len(shifts) > 1:
+                    # Cell 1
+                    shift1 = shifts[0]
+                    cell1_content = f"{int(scheduler.shift_types[shift1]['hours'])}N" if scheduler.is_night_shift(
+                        shift1) else str(int(scheduler.shift_types[shift1]['hours']))
+                    prefix1 = next((p for p in styles['fills'] if shift1.startswith(p)), None)
+                    if prefix1:
+                        cell1_bg = styles['fills'][prefix1]
+                        cell1_font_color = styles['font_colors'].get(prefix1, styles['font_colors']['default'])
+                    # Cell 2
+                    shift2 = shifts[1]
+                    cell2_content = f"{int(scheduler.shift_types[shift2]['hours'])}N" if scheduler.is_night_shift(
+                        shift2) else str(int(scheduler.shift_types[shift2]['hours']))
+                    prefix2 = next((p for p in styles['fills'] if shift2.startswith(p)), None)
+                    if prefix2:
+                        cell2_bg = styles['fills'][prefix2]
+                        cell2_font_color = styles['font_colors'].get(prefix2, styles['font_colors']['default'])
 
-            html += f"<td style='background-color:{bg_color}; color:{font_color}; font-weight: bold;'>{content}</td>"
-        html += "</tr>"
+                if is_off_day and not is_personal_holiday:
+                    cell1_bg = cell2_bg = styles['holiday_empty_fill']
+
+            row1_cells += f"<td style='height: 25px; background-color:{cell1_bg}; color:{cell1_font_color}; font-weight: bold;'>{cell1_content}</td>"
+            row2_cells += f"<td style='height: 25px; background-color:{cell2_bg}; color:{cell2_font_color}; font-weight: bold;'>{cell2_content}</td>"
+
+        html += f"<tr><td rowspan='2' class='name-col' style='background-color: {styles['header_fill']}; font-weight: bold;'>{assistant}</td>{row1_cells}</tr>"
+        html += f"<tr>{row2_cells}</tr>"
 
     html += "</tbody></table>"
     return html
@@ -2072,7 +2122,7 @@ with st.sidebar:
 
 # --- Main Area for Output ---
 if run_button:
-    log_container = st.container()
+    log_container = st.empty()
 
 
     def user_friendly_logger(message):
@@ -2168,6 +2218,8 @@ if run_button:
                     html_summary = generate_pharmacist_html_summary(best_schedule, scheduler_instance)
                 else:
                     html_summary = generate_assistant_html_summary(best_schedule, scheduler_instance)
+
+                # V-- ส่วนสำคัญที่ทำให้ HTML แสดงผลเป็นตาราง --V
                 st.markdown(html_summary, unsafe_allow_html=True)
 
             # --- Display Other Sheets ---
@@ -2185,3 +2237,4 @@ if run_button:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error(
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
+        
