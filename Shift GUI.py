@@ -2071,40 +2071,53 @@ def generate_assistant_html_summary(schedule, scheduler):
 
 # --- Streamlit UI and Main Execution Logic ---
 
-st.set_page_config(layout="wide")
-st.title("⚕️ โปรแกรมจัดตารางเวร")
+st.set_page_config(layout="wide", page_title="Schedulix", page_icon="⚕️")
+st.title("⚕️ Schedulix: โปรแกรมจัดตารางเวร")
 
 # --- Sidebar for Inputs ---
 with st.sidebar:
-    st.header("⚙️ ตั้งค่าการทำงาน")
+    st.image("https://i.imgur.com/R5yWv0Z.png", width=100)
+    st.title("⚙️ ตั้งค่า")
 
     scheduler_type = st.selectbox(
         "เลือกประเภทการจัดเวร",
         ("จัดเวรเภสัชกร", "จัดเวรผู้ช่วยเภสัชกร")
     )
 
+    st.divider()
+
     if scheduler_type == "จัดเวรเภสัชกร":
         excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
-        st.info("โปรแกรมจะดึงข้อมูล **เภสัชกร** จาก Google Sheet โดยอัตโนมัติ")
+        st.info("ใช้ข้อมูล **เภสัชกร** จาก Google Sheet")
     else:  # จัดเวรผู้ช่วยเภสัชกร
         excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPgQYdZf6k7sQG1o-r-P7Awbwz2f5T2gWz-b8d9V4j_c-Q6c7L3wYkK9b7X2tH7g/pub?output=xlsx"
-        st.info("โปรแกรมจะดึงข้อมูล **ผู้ช่วยเภสัชกร** จาก Google Sheet โดยอัตโนมัติ")
+        st.info("ใช้ข้อมูล **ผู้ช่วยเภสัชกร** จาก Google Sheet")
 
     mode = st.radio(
-        "เลือกรูปแบบการจัดตาราง",
+        "เลือกรูปแบบ",
         ("จัดทั้งเดือน", "จัดเฉพาะวันที่เลือก"),
-        help="เลือกได้ว่าจะจัดตารางเวรสำหรับทั้งเดือน หรือเลือกจัดเฉพาะบางวัน"
+        horizontal=True
     )
+
+    # --- Calculate default month and year ---
+    current_date = datetime.now()
+    default_month = current_date.month + 1
+    default_year = current_date.year
+    if default_month > 12:
+        default_month = 1
+        default_year += 1
 
     dates_to_schedule, year, month = [], 0, 0
     if mode == "จัดทั้งเดือน":
-        current_date = datetime.now()
-        year = st.number_input("ปี (ค.ศ.)", min_value=2020, max_value=2050, value=current_date.year)
-        month = st.number_input("เดือน", min_value=1, max_value=12, value=current_date.month)
+        col1, col2 = st.columns(2)
+        with col1:
+            year = st.number_input("ปี (ค.ศ.)", min_value=2020, max_value=2050, value=default_year)
+        with col2:
+            month = st.number_input("เดือน", min_value=1, max_value=12, value=default_month)
     else:  # Specific Dates
         date_range = st.date_input(
-            "เลือกช่วงวันที่ต้องการจัดตาราง",
-            value=(datetime(2025, 10, 13), datetime(2025, 10, 15)),
+            "เลือกช่วงวันที่",
+            value=(datetime.now().date(), datetime.now().date() + timedelta(days=2)),
             min_value=datetime(2020, 1, 1)
         )
         if len(date_range) == 2:
@@ -2112,11 +2125,22 @@ with st.sidebar:
         elif len(date_range) == 1:
             dates_to_schedule = [date_range[0]]
 
-    iterations = st.slider(
-        "จำนวนรอบในการหาผลลัพธ์ที่ดีที่สุด",
-        min_value=1, max_value=500, value=10,
-        help="ยิ่งจำนวนรอบเยอะ ยิ่งมีโอกาสได้ตารางที่ดีขึ้น แต่จะใช้เวลาคำนวณนานขึ้น"
-    )
+    st.divider()
+
+    if scheduler_type == "จัดเวรเภสัชกร":
+        iterations = st.slider(
+            "จำนวนรอบในการหาผลลัพธ์ (เภสัชกร)",
+            min_value=1, max_value=300, value=50, step=5,
+            help="ยิ่งเยอะ ยิ่งมีโอกาสได้ตารางที่ดีขึ้น แต่จะใช้เวลานานขึ้น"
+        )
+    else:
+        iterations = st.slider(
+            "จำนวนรอบในการหาผลลัพธ์ (ผู้ช่วย)",
+            min_value=1, max_value=500, value=10,
+            help="ยิ่งเยอะ ยิ่งมีโอกาสได้ตารางที่ดีขึ้น แต่จะใช้เวลานานขึ้น"
+        )
+
+    st.divider()
 
     run_button = st.button("🚀 เริ่มจัดตารางเวร", type="primary", use_container_width=True)
 
@@ -2194,40 +2218,44 @@ if run_button:
         data_load_progress.empty()
 
         if best_schedule is not None and excel_buffer is not None:
+            st.balloons()
             st.success("✅ จัดตารางเวรสำเร็จ!")
 
             type_prefix = "Pharmacist" if scheduler_type == "จัดเวรเภสัชกร" else "Assistant"
             if mode == "จัดทั้งเดือน":
-                output_filename = f"{type_prefix}_Schedule_{year}_{month}.xlsx"
+                output_filename = f"{type_prefix}_Schedule_{year}_{month:02d}.xlsx"
             else:
-                output_filename = f"{type_prefix}_Schedule_Custom_Dates.xlsx"
+                date_str = dates_to_schedule[0].strftime('%Y%m%d')
+                output_filename = f"{type_prefix}_Schedule_Custom_{date_str}.xlsx"
 
             st.download_button(
-                label="📥 ดาวน์โหลดตารางเวร (ไฟล์ Excel)",
+                label="📥 ดาวน์โหลดตารางเวรทั้งหมด (ไฟล์ Excel)",
                 data=excel_buffer,
                 file_name=output_filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
-            st.header("📊 ผลลัพธ์ตารางเวร")
+            st.divider()
 
-            # --- Display Styled HTML Summary ---
-            with st.expander("ตารางสรุปรายวัน (Daily Summary)", expanded=True):
-                if scheduler_type == "จัดเวรเภสัชกร":
-                    html_summary = generate_pharmacist_html_summary(best_schedule, scheduler_instance)
-                else:
-                    html_summary = generate_assistant_html_summary(best_schedule, scheduler_instance)
+            # --- Display Styled HTML Summary directly on the page ---
+            st.header("🗓️ ตารางสรุปรายวัน (Daily Summary)")
+            if scheduler_type == "จัดเวรเภสัชกร":
+                html_summary = generate_pharmacist_html_summary(best_schedule, scheduler_instance)
+            else:
+                html_summary = generate_assistant_html_summary(best_schedule, scheduler_instance)
 
-                # V-- ส่วนสำคัญที่ทำให้ HTML แสดงผลเป็นตาราง --V
-                st.markdown(html_summary, unsafe_allow_html=True)
+            st.markdown(html_summary, unsafe_allow_html=True)  # <-- This renders the HTML table
 
-            # --- Display Other Sheets ---
+            st.divider()
+
+            # --- Display Other Sheets in Expanders ---
+            st.header("📄 ตารางรูปแบบอื่นๆ (ที่มีในไฟล์ Excel)")
             xls = pd.ExcelFile(excel_buffer)
             sheet_names = xls.sheet_names
             for sheet_name in sheet_names:
                 if sheet_name != 'Daily Summary':
-                    with st.expander(f"ตาราง: {sheet_name}"):
+                    with st.expander(f"ดูตาราง: {sheet_name}"):
                         df = pd.read_excel(xls, sheet_name=sheet_name)
                         st.dataframe(df)
         elif run_button:
@@ -2237,4 +2265,3 @@ if run_button:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error(
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
-        
