@@ -1726,7 +1726,8 @@ class AssistantScheduler:
                 date_str = date.strftime('%Y-%m-%d')
                 shifts = daily_summary_data.get(assistant, {}).get(date_str, [])
                 note_text = self.special_notes.get(assistant, {}).get(date_str)
-                if note_text: cell1.value, cell1.font = note_text, styles['fonts']['note']
+                if note_text: cell1.value, cell1.font = note_text, styles['fonts'].get('note',
+                                                                                       Font(italic=True, size=9))
 
                 if date_str in self.assistants[assistant]['holidays']:
                     cell2.value = 'OFF';
@@ -1822,6 +1823,202 @@ class AssistantScheduler:
             ws.column_dimensions[col_cells[0].column_letter].width = max_length + 2
 
 
+# --- HTML Generation Functions ---
+
+def generate_pharmacist_html_summary(schedule, scheduler):
+    styles = {
+        'header_fill': '#D3D3D3', 'weekend_fill': '#FFE4E1', 'holiday_fill': '#FFB6C1',
+        'holiday_empty_fill': '#FFFF00', 'off_fill': '#D3D3D3',
+        'fills': {
+            'I100': '#00B050', 'O100': '#00B0F0', 'Care': '#D40202', 'C8': '#E6B8AF',
+            'I400': '#FF00FF', 'O400F1': '#0033CC', 'O400F2': '#C78AF2', 'O400ER': '#ED7D31', 'ARI': '#7030A0'
+        },
+        'font_colors': {'O400F1': '#FFFFFF', 'ARI': '#FFFFFF', 'default': '#000000'}
+    }
+    ordered_pharmacists = ["ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)",
+                           "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)", "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)",
+                           "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)", "ภญ.ชลนิชา (เฟื่อง)",
+                           "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)", "ภญ.อมลกานต์ (บอม)",
+                           "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)", "ภญ.วรรณิดา (ม่าน)", "ภญ.ปาณิศา (แบม)",
+                           "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)", "ภญ.ดวงดาว (ปลา)",
+                           "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)", "ภญ.ภาวิตา (จูน)",
+                           "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)", "ภญ.พัทธ์ธีรา (วิว)",
+                           "ภญ.จุฑามาศ (กวาง)", 'ภญ. ณัฐพร (แอม)']
+    sorted_dates = sorted(schedule.index)
+
+    html = "<style> table, th, td { border: 1px solid #CCCCCC; border-collapse: collapse; text-align: center; vertical-align: middle; padding: 4px; font-family: sans-serif; font-size: 12px; } th { font-weight: bold; } .note { font-style: italic; font-size: 10px; word-wrap: break-word; } </style>"
+    html += "<table><thead><tr><th style='width: 200px; background-color: {bg};'>Pharmacist</th>".format(
+        bg=styles['header_fill'])
+    for date in sorted_dates:
+        bg_color = styles['header_fill']
+        if scheduler.is_holiday(date):
+            bg_color = styles['holiday_fill']
+        elif date.weekday() >= 5:
+            bg_color = styles['weekend_fill']
+        html += f"<th style='background-color: {bg_color};'>{date.strftime('%d/%m')}</th>"
+    html += "</tr></thead><tbody>"
+
+    for pharmacist in ordered_pharmacists:
+        if pharmacist not in scheduler.pharmacists: continue
+        html += f"""
+            <tr>
+                <td rowspan="3" style='background-color: {styles['header_fill']}; font-weight: bold;'>{pharmacist}</td>
+        """
+        # Row 1: Notes
+        for date in sorted_dates:
+            date_str = date.strftime('%Y-%m-%d')
+            note_text = scheduler.special_notes.get(pharmacist, {}).get(date_str, '')
+            is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not scheduler.get_pharmacist_shifts(
+                pharmacist, date, schedule)
+            bg_color = styles['holiday_empty_fill'] if is_off_day and not (
+                        date_str in scheduler.pharmacists[pharmacist]['holidays']) else '#FFFFFF'
+            html += f"<td style='height: 30px; background-color:{bg_color};'><div class='note'>{note_text}</div></td>"
+        html += "</tr>"
+
+        # Rows 2 & 3: Shifts
+        for r in range(2):
+            html += "<tr>"
+            for date in sorted_dates:
+                shifts = scheduler.get_pharmacist_shifts(pharmacist, date, schedule)
+                date_str = date.strftime('%Y-%m-%d')
+                is_personal_holiday = date_str in scheduler.pharmacists[pharmacist]['holidays']
+
+                content, bg_color, font_color = '', '#FFFFFF', styles['font_colors']['default']
+
+                if is_personal_holiday:
+                    content, bg_color = ('X' if r == 1 else ''), styles['off_fill']
+                else:
+                    shift_index = r if len(shifts) > 1 else 0
+                    if (r == 1 and len(shifts) > 0) or (r == 0 and len(shifts) > 1):
+                        shift = shifts[shift_index]
+                        content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
+                            shift) else str(int(scheduler.shift_types[shift]['hours']))
+                        prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                        if prefix:
+                            bg_color = styles['fills'][prefix]
+                            font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
+                            # If only one shift, color both cells
+                            if len(shifts) == 1:
+                                html = html.replace(
+                                    f"<td style='height: 30px; background-color:#FFFFFF;'><div class='note'>{scheduler.special_notes.get(pharmacist, {}).get(date_str, '')}</div></td>",
+                                    f"<td style='height: 30px; background-color:{bg_color};'><div class='note'>{scheduler.special_notes.get(pharmacist, {}).get(date_str, '')}</div></td>",
+                                    1)
+
+                    is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
+                    if is_off_day:
+                        bg_color = styles['holiday_empty_fill']
+
+                html += f"<td style='background-color:{bg_color}; color:{font_color}; font-weight: bold;'>{content}</td>"
+            html += "</tr>"
+
+    html += "</tbody></table>"
+    return html
+
+
+def generate_assistant_html_summary(schedule, scheduler):
+    styles = {
+        'header_fill': '#D3D3D3', 'weekend_fill': '#FFE4E1', 'holiday_fill': '#FFB6C1',
+        'holiday_empty_fill': '#FFFF00', 'off_fill': '#D3D3D3',
+        'fills': {
+            'I100': '#00B050', 'O100': '#00B0F0', 'Care': '#D40202', 'C8': '#E6B8AF',
+            'I400': '#FF00FF', 'O400F1': '#0033CC', 'O400F2': '#C78AF2', 'O400ER': '#ED7D31', 'ARI': '#7030A0'
+        },
+        'font_colors': {'O400F1': '#FFFFFF', 'ARI': '#FFFFFF', 'default': '#000000'}
+    }
+    ordered_assistants = ["วิภาดา (โอ)", "พักตร์วลัยพร (ปู)", "นิรินทร (อุ้ย)", "วิภาณี (จิ๋ม)", "นัทชา (เก้า)",
+                          "ศิริรัตน์ (บี)", "จิรภา (แต๊ก)", "นิรนุช (ปัท)", "ปภัสรินทร์ (ออย)", "ศิริพร (ปุ๋ย)",
+                          "พรเพชร (กิ๊ฟ)", "อรุณรัตน์ (เจี๊ยบ)", "กาญจนา (โอ๋)", "พรมงคล (แม็กซ์)", "ฉลอง (โป้ง)",
+                          "พราวรวี (แพรว)"
+        , "วสุพร (กิ๊ฟ)", "วรัญชลี (เมย์)", "กิตติยา (แนน)", "ปิยะรัตน์ (เบลล์)", "ปนัดดา (แหม่ม)", "ธารวิมล (นัท)",
+                          "เกียรติสุดา (ตาต้า)", "ชัญญา (แชมป์)", "แสงเดือน (อั๋น)", "สุกานดา (ตุํกตา)", "พัชรี (ใหม่)",
+                          "รุ่งนภา (แพท)", "เบญจวรรณ (จ๊อย)", "จันทร์ภรรัตน์ (อันโน)", "วีระยุทธ (เพ้นท์)",
+                          "ฉัตรกมล (ปุ้ย)"
+        , "ณัฐฎนิช (มิน)", "วรัญญา (อ้าย)", "ขวัญเนตร (เจเจ)", "มานะ (ตั๊ก)", "รัฎดาวรรณ (เชอรรี่)"]
+    sorted_dates = sorted(schedule.index)
+
+    html = "<style> table, th, td { border: 1px solid #CCCCCC; border-collapse: collapse; text-align: center; vertical-align: middle; padding: 4px; font-family: sans-serif; font-size: 12px; } th { font-weight: bold; } .note { font-style: italic; font-size: 10px; } </style>"
+    html += "<table><thead><tr><th style='width: 200px; background-color: {bg};'>Assistant</th>".format(
+        bg=styles['header_fill'])
+    for date in sorted_dates:
+        bg_color = styles['header_fill']
+        if scheduler.is_holiday(date):
+            bg_color = styles['holiday_fill']
+        elif date.weekday() >= 5:
+            bg_color = styles['weekend_fill']
+        html += f"<th style='background-color: {bg_color};'>{date.strftime('%d/%m')}</th>"
+    html += "</tr></thead><tbody>"
+
+    for assistant in ordered_assistants:
+        if assistant not in scheduler.assistants: continue
+        html += f"""
+            <tr>
+                <td rowspan="2" style='background-color: {styles['header_fill']}; font-weight: bold;'>{assistant}</td>
+        """
+        # Row 1: Notes or first shift
+        for date in sorted_dates:
+            date_str = date.strftime('%Y-%m-%d')
+            shifts = scheduler.get_assistant_shifts(assistant, date, schedule)
+            note_text = scheduler.special_notes.get(assistant, {}).get(date_str, '')
+            is_personal_holiday = date_str in scheduler.assistants[assistant]['holidays']
+            is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
+
+            content, bg_color, font_color = '', '#FFFFFF', styles['font_colors']['default']
+
+            if is_personal_holiday:
+                bg_color = styles['off_fill']
+            elif note_text:
+                content = f"<div class='note'>{note_text}</div>"
+            elif len(shifts) > 1:
+                shift = shifts[0]
+                content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(shift) else str(
+                    int(scheduler.shift_types[shift]['hours']))
+                prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                if prefix:
+                    bg_color = styles['fills'][prefix]
+                    font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
+            elif is_off_day:
+                bg_color = styles['holiday_empty_fill']
+            elif len(shifts) == 1:
+                shift = shifts[0]
+                prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                if prefix: bg_color = styles['fills'][prefix]
+
+            html += f"<td style='height: 30px; background-color:{bg_color}; color:{font_color}; font-weight: bold;'>{content}</td>"
+        html += "</tr>"
+
+        # Row 2: Second shift
+        html += "<tr>"
+        for date in sorted_dates:
+            date_str = date.strftime('%Y-%m-%d')
+            shifts = scheduler.get_assistant_shifts(assistant, date, schedule)
+            note_text = scheduler.special_notes.get(assistant, {}).get(date_str, '')
+            is_personal_holiday = date_str in scheduler.assistants[assistant]['holidays']
+            is_off_day = (scheduler.is_holiday(date) or date.weekday() >= 5) and not shifts
+
+            content, bg_color, font_color = '', '#FFFFFF', styles['font_colors']['default']
+
+            if is_personal_holiday:
+                content, bg_color = 'X', styles['off_fill']
+            else:
+                shift_index = 0 if note_text or len(shifts) == 1 else 1
+                if shifts and shift_index < len(shifts):
+                    shift = shifts[shift_index]
+                    content = f"{int(scheduler.shift_types[shift]['hours'])}N" if scheduler.is_night_shift(
+                        shift) else str(int(scheduler.shift_types[shift]['hours']))
+                    prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
+                    if prefix:
+                        bg_color = styles['fills'][prefix]
+                        font_color = styles['font_colors'].get(prefix, styles['font_colors']['default'])
+                elif is_off_day:
+                    bg_color = styles['holiday_empty_fill']
+
+            html += f"<td style='background-color:{bg_color}; color:{font_color}; font-weight: bold;'>{content}</td>"
+        html += "</tr>"
+
+    html += "</tbody></table>"
+    return html
+
+
 # --- Streamlit UI and Main Execution Logic ---
 
 st.set_page_config(layout="wide")
@@ -1840,7 +2037,7 @@ with st.sidebar:
         excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
         st.info("โปรแกรมจะดึงข้อมูล **เภสัชกร** จาก Google Sheet โดยอัตโนมัติ")
     else:  # จัดเวรผู้ช่วยเภสัชกร
-        excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdfJ47lznKm89OatoeciaWoXTXoTtakCaLIDXWYRCZ1hqEy91YBoK80Ih7EosfDQ/pub?output=xlsx"
+        excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPgQYdZf6k7sQG1o-r-P7Awbwz2f5T2gWz-b8d9V4j_c-Q6c7L3wYkK9b7X2tH7g/pub?output=xlsx"
         st.info("โปรแกรมจะดึงข้อมูล **ผู้ช่วยเภสัชกร** จาก Google Sheet โดยอัตโนมัติ")
 
     mode = st.radio(
@@ -1878,11 +2075,6 @@ if run_button:
     log_container = st.container()
 
 
-    @st.cache_data
-    def user_friendly_logger_cached(message):
-        log_container.info(message)
-
-
     def user_friendly_logger(message):
         log_container.info(message)
 
@@ -1892,10 +2084,12 @@ if run_button:
 
         best_schedule, best_unfilled_info = None, None
         excel_buffer = None
+        scheduler_instance = None  # To hold the final scheduler instance
 
         # --- Pharmacist Scheduler Logic ---
         if scheduler_type == "จัดเวรเภสัชกร":
             scheduler = PharmacistScheduler(excel_url, logger=user_friendly_logger, progress_bar=data_load_progress)
+            scheduler_instance = scheduler
             data_load_progress.progress(100, text="โหลดข้อมูลเภสัชกรสำเร็จ!")
 
             optimization_progress_placeholder = st.empty()
@@ -1919,6 +2113,7 @@ if run_button:
         # --- Assistant Scheduler Logic ---
         else:
             scheduler = AssistantScheduler(excel_url, logger=user_friendly_logger, progress_bar=data_load_progress)
+            scheduler_instance = scheduler
             data_load_progress.progress(100, text="โหลดข้อมูลผู้ช่วยเภสัชกรสำเร็จ!")
 
             final_dates = []
@@ -1936,7 +2131,7 @@ if run_button:
                 optimization_progress_placeholder = st.empty()
                 with optimization_progress_placeholder.container():
                     opt_progress_bar = st.progress(0, text="กำลังเตรียมการคำนวณ...")
-                    scheduler.progress_bar = opt_progress_bar  # Ensure the optimizer uses the new progress bar
+                    scheduler.progress_bar = opt_progress_bar
                     best_schedule = scheduler.optimize_schedule(final_dates, iterations)
 
                 optimization_progress_placeholder.empty()
@@ -1944,7 +2139,8 @@ if run_button:
                     scheduler.suggest_negotiations_for_unfilled(best_schedule)
                     excel_buffer = scheduler.export_to_excel(best_schedule)
 
-        # --- Display Results ---
+        # --- Clear logs and display results ---
+        log_container.empty()
         data_load_progress.empty()
 
         if best_schedule is not None and excel_buffer is not None:
@@ -1964,22 +2160,28 @@ if run_button:
                 use_container_width=True
             )
 
-            st.header("📊 ผลลัพธ์ตารางเวรทั้งหมด")
+            st.header("📊 ผลลัพธ์ตารางเวร")
+
+            # --- Display Styled HTML Summary ---
+            with st.expander("ตารางสรุปรายวัน (Daily Summary)", expanded=True):
+                if scheduler_type == "จัดเวรเภสัชกร":
+                    html_summary = generate_pharmacist_html_summary(best_schedule, scheduler_instance)
+                else:
+                    html_summary = generate_assistant_html_summary(best_schedule, scheduler_instance)
+                st.markdown(html_summary, unsafe_allow_html=True)
+
+            # --- Display Other Sheets ---
             xls = pd.ExcelFile(excel_buffer)
             sheet_names = xls.sheet_names
-            if 'Daily Summary' in sheet_names:
-                sheet_names.insert(0, sheet_names.pop(sheet_names.index('Daily Summary')))
-
             for sheet_name in sheet_names:
-                is_expanded = (sheet_name == 'Daily Summary')
-                with st.expander(f"ตาราง: {sheet_name}", expanded=is_expanded):
-                    df = pd.read_excel(xls, sheet_name=sheet_name)
-                    st.dataframe(df)
-        elif run_button:  # To avoid showing error when the page first loads
+                if sheet_name != 'Daily Summary':
+                    with st.expander(f"ตาราง: {sheet_name}"):
+                        df = pd.read_excel(xls, sheet_name=sheet_name)
+                        st.dataframe(df)
+        elif run_button:
             st.error("❌ ไม่สามารถสร้างตารางเวรได้ กรุณาตรวจสอบข้อจำกัดต่างๆ หรือลองเพิ่มจำนวนรอบการคำนวณ")
 
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error(
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
-
