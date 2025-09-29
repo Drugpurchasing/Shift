@@ -2072,7 +2072,6 @@ def generate_assistant_html_summary(schedule, scheduler):
 # --- Streamlit UI and Main Execution Logic ---
 
 st.set_page_config(layout="wide", page_title="IPSSS", page_icon="⚕️")
-st.image("https://github.com/Drugpurchasing/Shift/blob/main/IPSS.png?raw=true", width=100)
 st.title("Intelligent Pharmacy Scheduling Support System")
 
 # --- Sidebar for Inputs ---
@@ -2219,7 +2218,6 @@ if run_button:
         data_load_progress.empty()
 
         if best_schedule is not None and excel_buffer is not None:
-            st.balloons()
             st.success("✅ จัดตารางเวรสำเร็จ!")
 
             type_prefix = "Pharmacist" if scheduler_type == "จัดเวรเภสัชกร" else "Assistant"
