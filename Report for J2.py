@@ -487,8 +487,8 @@ elif app_mode == "2. รายงานขายยาประจำเดื�
                 st.subheader("📊 ดูตัวอย่างผลลัพธ์");
                 tab1, tab2, tab3 = st.tabs(["Rate by Month", "Cases per Month", "Raw Merged Data"])
                 with tab1:
-                    st.dataframe(output_dfs["Rate แยกเดือน"]); with
-                tab2: st.dataframe(output_dfs["จำนวนเคสต่อเดือน"]);
+                    st.dataframe(output_dfs["Rate แยกเดือน"]); 
+                with tab2: st.dataframe(output_dfs["จำนวนเคสต่อเดือน"]);
                 with tab3:
                     st.dataframe(raw_df)
         else:
