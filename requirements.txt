@@ -7,3 +7,4 @@ st_gsheets_connection
 xlrd
 xlsxwriter
 PyPDF2
+PdfMerger
