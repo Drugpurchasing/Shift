@@ -2071,12 +2071,12 @@ def generate_assistant_html_summary(schedule, scheduler):
 
 # --- Streamlit UI and Main Execution Logic ---
 
-st.set_page_config(layout="wide", page_title="Schedulix", page_icon="⚕️")
-st.title("⚕️ Schedulix: โปรแกรมจัดตารางเวร")
+st.set_page_config(layout="wide", page_title="IPSSS", page_icon="⚕️")
+st.title("⚕️ Intelligent Pharmacy Scheduling Support System")
 
 # --- Sidebar for Inputs ---
 with st.sidebar:
-    st.image("https://i.imgur.com/R5yWv0Z.png", width=100)
+    st.image("https://github.com/Drugpurchasing/Shift/blob/main/IPSSS.png?raw=true", width=100)
     st.title("⚙️ ตั้งค่า")
 
     scheduler_type = st.selectbox(
@@ -2090,7 +2090,7 @@ with st.sidebar:
         excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJonz3GVKwdpcEqXoZSvGGCWrFVBH12yklC9vE3cnMCqtE-MOTGE-mwsE7pJBBYA/pub?output=xlsx"
         st.info("ใช้ข้อมูล **เภสัชกร** จาก Google Sheet")
     else:  # จัดเวรผู้ช่วยเภสัชกร
-        excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPgQYdZf6k7sQG1o-r-P7Awbwz2f5T2gWz-b8d9V4j_c-Q6c7L3wYkK9b7X2tH7g/pub?output=xlsx"
+        excel_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdfJ47lznKm89OatoeciaWoXTXoTtakCaLIDXWYRCZ1hqEy91YBoK80Ih7EosfDQ/pub?output=xlsx"
         st.info("ใช้ข้อมูล **ผู้ช่วยเภสัชกร** จาก Google Sheet")
 
     mode = st.radio(
@@ -2130,13 +2130,13 @@ with st.sidebar:
     if scheduler_type == "จัดเวรเภสัชกร":
         iterations = st.slider(
             "จำนวนรอบในการหาผลลัพธ์ (เภสัชกร)",
-            min_value=1, max_value=300, value=50, step=5,
+            min_value=5, max_value=300, value=50, step=5,
             help="ยิ่งเยอะ ยิ่งมีโอกาสได้ตารางที่ดีขึ้น แต่จะใช้เวลานานขึ้น"
         )
     else:
         iterations = st.slider(
             "จำนวนรอบในการหาผลลัพธ์ (ผู้ช่วย)",
-            min_value=1, max_value=500, value=10,
+            min_value=5, max_value=500, value=10,
             help="ยิ่งเยอะ ยิ่งมีโอกาสได้ตารางที่ดีขึ้น แต่จะใช้เวลานานขึ้น"
         )
 
