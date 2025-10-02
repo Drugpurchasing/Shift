@@ -18,7 +18,7 @@ st.set_page_config(
 
 
 # ==============================================================================
-# Functions 1-7 (โค้ดฟังก์ชันเดิมทั้งหมด ไม่มีการเปลี่ยนแปลง Logic)
+# Functions 1-7 (มีการปรับ process_kpi_report ให้รับ Rate File หลายไฟล์)
 # ==============================================================================
 def process_j2_report(uploaded_files, progress_bar):
     progress_bar.progress(10, text="[10%] กำลังรวมชีตข้อมูล...")
@@ -161,8 +161,6 @@ def process_epi_usage(uploaded_files, progress_bar):
                 df = source_workbook.parse(sheet_name, header=None)
                 if j == 0: df = df.iloc[2:]
                 dfs.append(df)
-            progress_bar.progress(10 + int(40 * (i + 1) / len(uploaded_files)),
-                                  text=f"[{10 + int(40 * (i + 1) / len(uploaded_files))}%] ประมวลผลไฟล์ {file_obj.name}...")
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}");
             return None
@@ -270,22 +268,32 @@ def process_narcotics_report(xls_files, receipt_report_file, master_file, progre
     return {'รายงานแยก': stacked_df, 'รายงานรวม': total_df, 'รายงานรับเข้า': dfT}
 
 
-def process_kpi_report(rate_file, inventory_file, master_file, progress_bar):
-    progress_bar.progress(10, text="[10%] กำลังโหลดและรวมข้อมูลคงคลังและ Rate...")
+def process_kpi_report(rate_files, inventory_file, master_file, progress_bar):
+    progress_bar.progress(10, text="[10%] กำลังโหลดและรวมข้อมูลคงคลัง...")
     try:
         remain = pd.read_excel(inventory_file, sheet_name="Sheet1");
         remain = remain.groupby('Storage location')['Stock Value on Period End'].sum().reset_index()
         remain = remain.rename(columns={'Storage location': 'Store'})
-        source_workbook = pd.ExcelFile(rate_file);
-        dfs = [source_workbook.parse(sheet_name, header=None) for sheet_name in source_workbook.sheet_names]
-        dfs[0] = dfs[0].iloc[2:];
-        stacked_df = pd.concat(dfs, ignore_index=True)
+
+        # --- NEW LOGIC: Combine multiple rate files ---
+        all_rate_dfs = []
+        for i, rate_file in enumerate(rate_files):
+            source_workbook = pd.ExcelFile(rate_file);
+            dfs = [source_workbook.parse(sheet_name, header=None) for sheet_name in source_workbook.sheet_names]
+            dfs[0] = dfs[0].iloc[2:];
+            all_rate_dfs.extend(dfs)
+            progress_bar.progress(10 + int(20 * (i + 1) / len(rate_files)),
+                                  text=f"[{10 + int(20 * (i + 1) / len(rate_files))}%] กำลังรวมไฟล์ Rate {rate_file.name}...")
+
+        stacked_df = pd.concat(all_rate_dfs, ignore_index=True)
+        # --- END NEW LOGIC ---
+
         dfmaster = pd.read_excel(master_file, sheet_name="Drug master")
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์เริ่มต้น: {e}");
         return None
 
-    progress_bar.progress(30, text="[30%] กำลังผสานและทำความสะอาดข้อมูล...")
+    progress_bar.progress(35, text="[35%] กำลังผสานและทำความสะอาดข้อมูล Rate...")
     stacked_df = stacked_df.dropna(subset=[stacked_df.columns[12]])
     stacked_df[stacked_df.columns[12]] = pd.to_numeric(stacked_df[stacked_df.columns[12]], errors='coerce');
     stacked_df[stacked_df.columns[18]] = pd.to_numeric(stacked_df[stacked_df.columns[18]], errors='coerce')
@@ -583,7 +591,7 @@ elif "2. รายงานขายยาประจำเดือน" in app
                 st.subheader("📊 ดูตัวอย่างผลลัพธ์")
                 with st.expander("คลิกเพื่อดูตัวอย่างข้อมูล"):
                     tab_names = ["Rate by Month", "Cases per Month"]
-                    if raw_df is not None:
+                    if include_raw:
                         tab_names.append("Raw Merged Data")
 
                     tabs = st.tabs(tab_names)
@@ -685,14 +693,16 @@ elif "5. รายงาน KPI" in app_mode:
     st.markdown("---")
     st.info("""
         **ขั้นตอนการใช้งาน:**
-        1. **อัปโหลดไฟล์ Rate:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการเบิกจ่ายยา
+        1. **อัปโหลดไฟล์ Rate:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการเบิกจ่ายยา (**เลือกหลายไฟล์ได้**)
         2. **อัปโหลดไฟล์ยอดคงคลัง:** เลือกไฟล์ Excel (.xlsx) ที่มียอดคงคลังสิ้นเดือน
         3. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
         4. **กดปุ่ม 'ประมวลผล KPI'**
     """)
     col1, col2, col3 = st.columns(3)
     with col1:
-        rate_file = st.file_uploader("1. อัปโหลดไฟล์ Rate (*.xls)", type="xls", key="kpi_rate_uploader")
+        # [MODIFIED] เปลี่ยนเป็น accept_multiple_files=True
+        rate_files = st.file_uploader("1. อัปโหลดไฟล์ Rate (*.xls) (หลายไฟล์ได้)", type="xls",
+                                      accept_multiple_files=True, key="kpi_rate_uploader")
     with col2:
         inventory_file = st.file_uploader("2. อัปโหลดไฟล์ยอดคงคลังสิ้นเดือน (*.xlsx)", type="xlsx",
                                           key="kpi_inventory_uploader")
@@ -700,10 +710,11 @@ elif "5. รายงาน KPI" in app_mode:
         master_file_kpi = st.file_uploader("3. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
                                            key="kpi_master_uploader")
     if st.button("🚀 ประมวลผล KPI", key="kpi_button", use_container_width=True):
-        if rate_file and inventory_file and master_file_kpi:
+        if rate_files and inventory_file and master_file_kpi:
             progress_bar = st.progress(0, text="กำลังเริ่มต้นการคำนวณ KPI...")
             with st.spinner("กำลังคำนวณ KPI..."):
-                output_data = process_kpi_report(rate_file, inventory_file, master_file_kpi, progress_bar)
+                # [MODIFIED] ส่ง list ของ rate_files เข้าไป
+                output_data = process_kpi_report(rate_files, inventory_file, master_file_kpi, progress_bar)
 
             if output_data:
                 progress_bar.progress(95, text="[95%] กำลังสร้างไฟล์ Excel...")
