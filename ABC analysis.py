@@ -267,7 +267,6 @@ with col2:
 
         # URL for the Drug Master file is now hardcoded
         master_file_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJpIKf_q4h4h1VEIM0tT1MlMvoEw1PXLYMxMv_c3abXFvAIBS0tWHxLL0sDjuuBrPjbrTP7lJH-NQw/pub?output=xlsx"
-        st.markdown(f"✔️ **ข้อมูล Drug Master:** ระบบจะดึงข้อมูลกลุ่มยาจากส่วนกลางโดยอัตโนมัติ")
 
         if st.button("🚀 เริ่มการวิเคราะห์ ABC", key="abc_button", use_container_width=True, type="primary"):
             if inventory_files:
@@ -294,4 +293,4 @@ with col2:
 
 # --- FOOTER ---
 st.markdown("---")
-st.markdown("<p style='text-align: center; color: gray;'>Developed by BG</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: right; color: gray;'>Developed by BG</p>", unsafe_allow_html=True)
