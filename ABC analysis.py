@@ -282,7 +282,7 @@ with col2:
                     st.download_button(
                         label="📥 ดาวน์โหลดรายงาน ABC Analysis (.xlsx)",
                         data=report_bytes,
-                        file_name="Consolidated_ABC_Report.xlsx",
+                        file_name="ABC_Report.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
