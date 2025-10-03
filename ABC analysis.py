@@ -36,7 +36,7 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
 
         # Load Drug Master from URL
-        master_df = pd.read_excel(master_file_url, sheet_name='Drug Master', usecols=['Material', 'Drug group'])
+        master_df = pd.read_excel(master_file_url, sheet_name='Drug master', usecols=['Material', 'Drug group'])
         master_df['Material'] = master_df['Material'].astype(str)
 
     except Exception as e:
@@ -170,36 +170,36 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0)
         current_row += summary_abc_count.shape[0] + 3
 
-        # # 2. Top 3 Drug Groups
-        # worksheet.cell(row=current_row, column=1,
-        #                value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
-        # current_row += 1
-        # top_groups = final_results.groupby('Storage location').apply(
-        #     lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
-        # top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
-        # top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
-        # current_row += top_groups.shape[0] + 3
+        # 2. Top 3 Drug Groups
+        worksheet.cell(row=current_row, column=1,
+                       value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
+        current_row += 1
+        top_groups = final_results.groupby('Storage location').apply(
+            lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
+        top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
+        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
+        current_row += top_groups.shape[0] + 3
 
-        # # 3. Top 5 Items
-        # worksheet.cell(row=current_row, column=1,
-        #                value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
-        # current_row += 1
-        # top_items = final_results.groupby('Storage location').apply(
-        #     lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(5)).reset_index()
-        # top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
-        # top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
-        #
-        # # --- Detail Sheets per Storage Location ---
-        # for location in final_results['Storage location'].unique():
-        #     sheet_df = final_results[final_results['Storage location'] == location].copy()
-        #     sheet_name = f'SLoc_{location}'
-        #     monthly_cols = sorted([col for col in sheet_df.columns if isinstance(col, str) and col.startswith('Qty_')])
-        #     output_columns = ['Material', 'Material description', 'Storage location'] + monthly_cols + [
-        #         'AvgMonthlyNetQuantity', 'NetConsumptionValue', 'PercentageValue', 'CumulativePercentage', 'ABC_Class',
-        #         'Drug group']
-        #     sheet_df = sheet_df[output_columns]
-        #     sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-        #     apply_formats_and_hide_cols(writer, sheet_name, sheet_df)
+        # 3. Top 5 Items
+        worksheet.cell(row=current_row, column=1,
+                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
+        current_row += 1
+        top_items = final_results.groupby('Storage location').apply(
+            lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(5)).reset_index()
+        top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
+        top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
+
+        # --- Detail Sheets per Storage Location ---
+        for location in final_results['Storage location'].unique():
+            sheet_df = final_results[final_results['Storage location'] == location].copy()
+            sheet_name = f'SLoc_{location}'
+            monthly_cols = sorted([col for col in sheet_df.columns if isinstance(col, str) and col.startswith('Qty_')])
+            output_columns = ['Material', 'Material description', 'Storage location'] + monthly_cols + [
+                'AvgMonthlyNetQuantity', 'NetConsumptionValue', 'PercentageValue', 'CumulativePercentage', 'ABC_Class',
+                'Drug group']
+            sheet_df = sheet_df[output_columns]
+            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            apply_formats_and_hide_cols(writer, sheet_name, sheet_df)
 
     progress_bar.progress(95, text="[95%] กำลังจัดเตรียมการดาวน์โหลด...")
     return output_buffer.getvalue()
