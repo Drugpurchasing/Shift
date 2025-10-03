@@ -174,8 +174,10 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         worksheet.cell(row=current_row, column=1,
                        value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
         current_row += 1
+        # AFTER (Corrected)
         top_groups = final_results.groupby('Storage location').apply(
             lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
+        top_groups.rename(columns={0: 'NetConsumptionValue'}, inplace=True)  # <-- ADD THIS LINE
         top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
         top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
         current_row += top_groups.shape[0] + 3
@@ -184,8 +186,11 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         worksheet.cell(row=current_row, column=1,
                        value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
         current_row += 1
+        # AFTER (Corrected)
         top_items = final_results.groupby('Storage location').apply(
-            lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(5)).reset_index()
+            lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(
+                5)).reset_index()
+        top_items.rename(columns={0: 'NetConsumptionValue'}, inplace=True)  # <-- ADD THIS LINE
         top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
         top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
 
