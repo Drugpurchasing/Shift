@@ -36,7 +36,7 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
 
         # Load Drug Master from URL
-        master_df = pd.read_excel(master_file_url, sheet_name='Drug Master', usecols=['Material', 'Drug group'])
+        master_df = pd.read_excel(master_file_url, sheet_name='Drug master', usecols=['Material', 'Drug group'])
         master_df['Material'] = master_df['Material'].astype(str)
 
     except Exception as e:
@@ -169,30 +169,27 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         current_row += 1
         summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0)
         current_row += summary_abc_count.shape[0] + 3
-        #
-        # # 2. Top 3 Drug Groups
-        # worksheet.cell(row=current_row, column=1,
-        #                value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
-        # current_row += 1
-        # # AFTER (Corrected)
-        # top_groups = final_results.groupby('Storage location').apply(
-        #     lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
-        # top_groups.rename(columns={0: 'NetConsumptionValue'}, inplace=True)  # <-- ADD THIS LINE
-        # top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
-        # top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
-        # current_row += top_groups.shape[0] + 3
-        #
-        # # 3. Top 5 Items
-        # worksheet.cell(row=current_row, column=1,
-        #                value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
-        # current_row += 1
-        # # AFTER (Corrected)
-        # top_items = final_results.groupby('Storage location').apply(
-        #     lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(
-        #         5)).reset_index()
-        # top_items.rename(columns={0: 'NetConsumptionValue'}, inplace=True)  # <-- ADD THIS LINE
-        # top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
-        # top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
+
+        # 2. Top 3 Drug Groups
+        worksheet.cell(row=current_row, column=1,
+                       value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
+        current_row += 1
+        top_groups = final_results.groupby('Storage location').apply(
+            lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
+        top_groups.rename(columns={0: 'NetConsumptionValue'}, inplace=True)
+        top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
+        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
+        current_row += top_groups.shape[0] + 3
+
+        # 3. Top 5 Items
+        worksheet.cell(row=current_row, column=1,
+                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
+        current_row += 1
+        top_items = final_results.groupby('Storage location').apply(
+            lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(5)).reset_index()
+        top_items.rename(columns={0: 'NetConsumptionValue'}, inplace=True)
+        top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
+        top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
 
         # --- Detail Sheets per Storage Location ---
         for location in final_results['Storage location'].unique():
@@ -218,9 +215,18 @@ st.markdown("เครื่องมือนี้ใช้สำหรับ�
 
 st.info("""
     **ขั้นตอนการใช้งาน:**
-    1. **อัปโหลดไฟล์ข้อมูลการใช้งาน:** เลือกไฟล์ Excel (.xls, .xlsx) ที่มีข้อมูลการเบิกจ่ายยา/การใช้งาน (เลือกหลายไฟล์ได้)
-    2. **กดปุ่ม 'เริ่มการวิเคราะห์ ABC'** (ไฟล์ Drug Master จะถูกดึงมาจากระบบโดยอัตโนมัติ)
+    1. **ดึงข้อมูลและอัปโหลดไฟล์:** นำข้อมูลออกจาก SAP (ตามขั้นตอนด้านล่าง) จากนั้นอัปโหลดไฟล์ที่ได้
+    2. **กดปุ่ม 'เริ่มการวิเคราะห์ ABC'**
 """)
+
+with st.expander("📄 **คลิกเพื่อดูขั้นตอนการดึงข้อมูลการใช้งานยาจาก SAP**"):
+    st.markdown("""
+        1. เข้าโปรแกรม SAP ไปที่ Transaction Code **MB51**
+        2. ที่หน้าจอ Get Variant ให้เลือก Variant ชื่อ **`ABC-ABC ห้องยา`**
+        3. ใส่รหัสคลัง (Storage Location) ที่ต้องการวิเคราะห์
+        4. ใส่วันที่ (Posting Date) ที่ต้องการ โดย **ไม่ควรดึงข้อมูลเกินครั้งละ 1 ปี** เพื่อป้องกันข้อมูลมีขนาดใหญ่เกินไป
+        5. Execute (F8) และ Export ข้อมูลออกมาเป็นไฟล์ Excel เพื่อนำมาใช้อัปโหลดในขั้นต่อไป
+    """)
 
 inventory_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการใช้งาน (Consumption Files)", type=["xlsx", "xls"],
                                      accept_multiple_files=True, key="abc_inventory_uploader")
