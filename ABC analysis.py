@@ -17,13 +17,13 @@ st.set_page_config(
 # ==============================================================================
 # Functions
 # ==============================================================================
-def process_abc_analysis(inventory_files, master_file, progress_bar):
+def process_abc_analysis(inventory_files, master_file_url, progress_bar):
     """
     Performs ABC analysis based on Net Consumption Value across different storage locations.
 
     Args:
         inventory_files: List of file objects containing consumption data.
-        master_file: File object containing the Drug Master (for Drug group).
+        master_file_url: URL string for the Drug Master file.
         progress_bar: Streamlit progress bar object.
 
     Returns:
@@ -35,8 +35,8 @@ def process_abc_analysis(inventory_files, master_file, progress_bar):
         all_dfs = [pd.read_excel(fp) for fp in inventory_files]
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
 
-        # Load Drug Master
-        master_df = pd.read_excel(master_file, sheet_name='Drug master', usecols=['Material', 'Drug group'])
+        # Load Drug Master from URL
+        master_df = pd.read_excel(master_file_url, sheet_name='Drug master', usecols=['Material', 'Drug group'])
         master_df['Material'] = master_df['Material'].astype(str)
 
     except Exception as e:
@@ -214,22 +214,23 @@ st.markdown("เครื่องมือนี้ใช้สำหรับ�
 st.info("""
     **ขั้นตอนการใช้งาน:**
     1. **อัปโหลดไฟล์ข้อมูลการใช้งาน:** เลือกไฟล์ Excel (.xls, .xlsx) ที่มีข้อมูลการเบิกจ่ายยา/การใช้งาน (เลือกหลายไฟล์ได้)
-    2. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูล 'Drug group'
-    3. **กดปุ่ม 'เริ่มการวิเคราะห์ ABC'**
+    2. **กดปุ่ม 'เริ่มการวิเคราะห์ ABC'** (ไฟล์ Drug Master จะถูกดึงมาจากระบบโดยอัตโนมัติ)
 """)
 
-col1, col2 = st.columns(2)
-with col1:
-    inventory_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการใช้งาน (Consumption Files)", type=["xlsx", "xls"],
-                                        accept_multiple_files=True, key="abc_inventory_uploader")
-with col2:
-    master_file_abc = st.file_uploader("2. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx", key="abc_master_uploader")
+inventory_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการใช้งาน (Consumption Files)", type=["xlsx", "xls"],
+                                     accept_multiple_files=True, key="abc_inventory_uploader")
+
+# URL for the Drug Master file is now hardcoded
+master_file_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJpIKf_q4h4h1VEIM0tT1MlMvoEw1PXLYMxMv_c3abXFvAIBS0tWHxLL0sDjuuBrPjbrTP7lJH-NQw/pub?output=xlsx"
+st.success(f"✔️ ไฟล์ Drug Master จะถูกดึงข้อมูลจากระบบโดยอัตโนมัติ")
+
 
 if st.button("🚀 เริ่มการวิเคราะห์ ABC", key="abc_button", use_container_width=True):
-    if inventory_files and master_file_abc:
+    if inventory_files:
         progress_bar = st.progress(0, text="กำลังเริ่มต้นการวิเคราะห์ ABC...")
         with st.spinner("กำลังทำการวิเคราะห์ ABC... กระบวนการนี้อาจใช้เวลาสักครู่"):
-            report_bytes = process_abc_analysis(inventory_files, master_file_abc, progress_bar)
+            # Pass the URL string directly to the function
+            report_bytes = process_abc_analysis(inventory_files, master_file_url, progress_bar)
 
         if report_bytes:
             progress_bar.progress(100, text="[100%] การวิเคราะห์ ABC เสร็จสมบูรณ์")
@@ -246,4 +247,4 @@ if st.button("🚀 เริ่มการวิเคราะห์ ABC", key
             st.success("✅ การวิเคราะห์ ABC เสร็จสมบูรณ์และสร้างรายงานสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
             progress_bar.empty()
     else:
-        st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 2 ส่วน")
+        st.warning("⚠️ กรุณาอัปโหลดไฟล์ข้อมูลการใช้งาน")
