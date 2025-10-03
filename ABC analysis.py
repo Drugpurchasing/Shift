@@ -36,7 +36,7 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
 
         # Load Drug Master from URL
-        master_df = pd.read_excel(master_file_url, sheet_name='Drug Master', usecols=['Material', 'Drug group'])
+        master_df = pd.read_excel(master_file_url, sheet_name='Drug master', usecols=['Material', 'Drug group'])
         master_df['Material'] = master_df['Material'].astype(str)
 
     except Exception as e:
@@ -177,7 +177,7 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         current_row += 1
         top_groups = final_results.groupby('Storage location').apply(
             lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
-        top_groups.rename(columns={0: 'NetConsumptionValue'}, inplace=True) # <-- FIX #1
+        top_groups.rename(columns={0: 'NetConsumptionValue'}, inplace=True) # <-- THE FIX
         top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
         top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
         current_row += top_groups.shape[0] + 3
@@ -188,7 +188,7 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         current_row += 1
         top_items = final_results.groupby('Storage location').apply(
             lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(5)).reset_index()
-        top_items.rename(columns={0: 'NetConsumptionValue'}, inplace=True) # <-- FIX #2
+        top_items.rename(columns={0: 'NetConsumptionValue'}, inplace=True) # <-- THE FIX
         top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
         top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
 
