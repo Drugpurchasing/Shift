@@ -36,7 +36,7 @@ def process_abc_analysis(inventory_files, master_file_url, progress_bar):
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
 
         # Load Drug Master from URL
-        master_df = pd.read_excel(master_file_url, sheet_name='Drug master', usecols=['Material', 'Drug group'])
+        master_df = pd.read_excel(master_file_url, sheet_name='Drug Master', usecols=['Material', 'Drug group'])
         master_df['Material'] = master_df['Material'].astype(str)
 
     except Exception as e:
