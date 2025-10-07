@@ -12,6 +12,8 @@ import io
 
 # --- The PharmacistScheduler Class ---
 # ไม่มีการเปลี่ยนแปลงตรรกะหลักของคลาสนี้
+# --- The PharmacistScheduler Class ---
+# (MODIFIED to include the 'junior' skill constraint)
 class PharmacistScheduler:
     """
     Pharmacy shift scheduler with optimization and Excel export.
@@ -66,9 +68,14 @@ class PharmacistScheduler:
                     max_hours = 250
                 else:
                     max_hours = float(max_hours)
+
+                # Make sure skills are clean strings
+                skills_raw = str(row['Skills']).split(',')
+                skills_clean = [skill.strip() for skill in skills_raw if skill.strip()]
+
                 self.pharmacists[name] = {
                     'night_shift_count': 0,
-                    'skills': str(row['Skills']).split(','),
+                    'skills': skills_clean,
                     'holidays': [date for date in str(row['Holidays']).split(',') if
                                  date != '1900-01-00' and date.strip() and date != 'nan'],
                     'shift_counts': {},
@@ -372,6 +379,42 @@ class PharmacistScheduler:
                     return True
         return False
 
+    # <<< NEW METHOD START >>>
+    def is_another_junior_on_overlapping_shift(self, candidate_pharmacist, date, new_shift_type, schedule_dict):
+        """
+        Checks if assigning a junior pharmacist would result in two juniors
+        working on overlapping shifts on the same day.
+        """
+        # This rule only applies if the candidate is a junior.
+        if 'junior' not in self.pharmacists[candidate_pharmacist]['skills']:
+            return False
+
+        # Get the time for the new shift.
+        new_start_time = self.shift_types[new_shift_type]['start_time']
+        new_end_time = self.shift_types[new_shift_type]['end_time']
+
+        # Check all existing shifts on that day.
+        if date in schedule_dict:
+            for existing_shift, assigned_pharmacist in schedule_dict[date].items():
+                # Skip unassigned shifts
+                if assigned_pharmacist in ['NO SHIFT', 'UNASSIGNED', 'UNFILLED']:
+                    continue
+
+                # Check if the already assigned person is also a junior
+                if 'junior' in self.pharmacists[assigned_pharmacist]['skills']:
+                    # Now check if their shift overlaps with the new one
+                    existing_start_time = self.shift_types[existing_shift]['start_time']
+                    existing_end_time = self.shift_types[existing_shift]['end_time']
+
+                    if self.check_time_overlap(new_start_time, new_end_time, existing_start_time, existing_end_time):
+                        # Conflict found: A junior is already working an overlapping shift.
+                        return True
+
+        # No conflicts found.
+        return False
+
+    # <<< NEW METHOD END >>>
+
     def has_nearby_night_shift_optimized(self, pharmacist, date, schedule_dict):
         for delta in [-2, -1, 1, 2]:
             check_date = date + timedelta(days=delta)
@@ -488,7 +531,7 @@ class PharmacistScheduler:
             for shift_type in shifts_to_process:
                 if schedule_dict[date][shift_type] not in ['NO SHIFT', 'UNASSIGNED',
                                                            'UNFILLED'] or not self.is_shift_available_on_date(
-                        shift_type, date):
+                    shift_type, date):
                     continue
                 available = self._get_available_pharmacists_optimized(shuffled_pharmacists, date, shift_type,
                                                                       schedule_dict, pharmacist_hours,
@@ -533,6 +576,10 @@ class PharmacistScheduler:
         for pharmacist in pharmacists:
             if date.strftime('%Y-%m-%d') in self.pharmacists[pharmacist]['holidays']: continue
             if self.has_overlapping_shift_optimized(pharmacist, date, shift_type, schedule_dict): continue
+
+            # <<< MODIFICATION: INTEGRATE NEW JUNIOR CHECK >>>
+            if self.is_another_junior_on_overlapping_shift(pharmacist, date, shift_type, schedule_dict): continue
+
             if pharmacist in pharmacists_on_night_yesterday: continue
             p_skills = self.pharmacists[pharmacist]['skills']
             s_req_skills = self.shift_types[shift_type]['required_skills']
@@ -609,6 +656,8 @@ class PharmacistScheduler:
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
         return current_score < best_score
 
+    # ... The rest of the PharmacistScheduler class (export functions, etc.) remains unchanged ...
+    # (The following functions are unchanged but included for completeness of the class)
     def export_to_excel(self, schedule, unfilled_info):
         wb = Workbook()
         ws = wb.active
