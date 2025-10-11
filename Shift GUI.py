@@ -446,10 +446,25 @@ class PharmacistScheduler:
         hour_values = list(hours_dict.values())
         hour_stdev = stdev(hour_values)
         hour_range = max(hour_values) - min(hour_values)
+        
         stdev_penalty = hour_stdev ** 2
         range_penalty = 0
-        if hour_range > 10:
-            range_penalty = (hour_range - 10) ** 2
+
+        # <<< MODIFICATION START >>>
+        # 1. เปลี่ยนเกณฑ์ผลต่างชั่วโมง (hour_range) จาก 10 เป็น 12 ตามที่ต้องการ
+        # 2. เพิ่มตัวคูณ (multiplier) เช่น 5 เพื่อให้การละเมิดเกณฑ์นี้มีบทลงโทษที่รุนแรงขึ้นมาก
+        #    ทำให้อัลกอริทึมพยายามอย่างยิ่งที่จะรักษาผลต่างไม่ให้เกิน 12 ชั่วโมง
+        
+        # Original lines:
+        # if hour_range > 10:
+        #     range_penalty = (hour_range - 10) ** 2
+            
+        # New lines:
+        if hour_range > 12:
+            # เพิ่มตัวคูณ (e.g., 5) เพื่อเพิ่มความสำคัญของการรักษาระยะห่างของชั่วโมง
+            range_penalty = 5 * ((hour_range - 12) ** 2)
+        # <<< MODIFICATION END >>>
+            
         return stdev_penalty + range_penalty
 
     def calculate_schedule_metrics(self, schedule, year, month):
@@ -2329,3 +2344,4 @@ if run_button:
         st.error(
 
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
+
