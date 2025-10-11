@@ -552,7 +552,7 @@ class PharmacistScheduler:
                                                                       schedule_dict, pharmacist_hours,
                                                                       pharmacist_consecutive_days)
                 if available:
-                    chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
+                    chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day, pharmacist_hours)
                     pharmacist_to_assign = chosen['name']
                     schedule_dict[date][shift_type] = pharmacist_to_assign
                     self._update_shift_counts(pharmacist_to_assign, shift_type)
@@ -627,37 +627,52 @@ class PharmacistScheduler:
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
 
-    def _calculate_suitability_score(self, pharmacist_data):
+    # <<< MODIFICATION: เพิ่ม min_hours และ shift_hours ใน signature >>>
+    def _calculate_suitability_score(self, pharmacist_data, min_hours, shift_hours):
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
-
-        # <<< MODIFICATION START >>>
-        # Changed from a linear penalty to a scaled quadratic penalty to more aggressively balance hours.
-        # Original line: hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
-        # The scaling factor (100) prevents the hour penalty from completely overpowering other factors.
         hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] / 100) ** 2
+        preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
+
+        # <<< MODIFICATION START: เพิ่มบทลงโทษสถานหนัก >>>
+        # หากการเพิ่มเวรนี้ทำให้ชั่วโมงของเภสัชกรคนนี้เกินกว่า (ชั่วโมงต่ำสุด + 12)
+        # ให้บวกค่าปรับที่สูงมากเข้าไป เพื่อผลักให้คนนี้ไปอยู่ท้ายสุดของตัวเลือก
+        range_breach_penalty = 0
+        projected_hours = pharmacist_data['current_hours'] + shift_hours
+        if projected_hours > (min_hours + 12):
+            range_breach_penalty = 10000  # ค่าปรับที่สูงมากๆ
         # <<< MODIFICATION END >>>
 
-        preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
-        return consecutive_penalty + hours_penalty + preference_penalty
+        return consecutive_penalty + hours_penalty + preference_penalty + range_breach_penalty
 
-    def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
+    # <<< MODIFICATION: เพิ่ม pharmacist_hours ใน signature ของฟังก์ชัน >>>
+    def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day, pharmacist_hours):
+        # <<< MODIFICATION START >>>
+        # คำนวณหาชั่วโมงที่น้อยที่สุดของเภสัชกร "ทุกคน" ณ เวลานั้น
+        min_hours = 0
+        if pharmacist_hours: # ตรวจสอบว่า dict ไม่ใช่ค่าว่าง
+            min_hours = min(pharmacist_hours.values())
+        # <<< MODIFICATION END >>>
+
         if self.is_night_shift(shift_type) and is_day_before_problem_day:
             problem_day = date + timedelta(days=1)
             problem_day_str = problem_day.strftime('%Y-%m-%d')
             candidates_off_tomorrow = []
             for p_data in available_pharmacists:
-                p_name = p_data['name']
-                if problem_day_str in self.pharmacists[p_name]['holidays']:
+                if problem_day_str in self.pharmacists[p_data['name']]['holidays']:
                     candidates_off_tomorrow.append(p_data)
+            
             if candidates_off_tomorrow:
+                # ส่ง min_hours เข้าไปใน lambda function เพื่อคำนวณคะแนน
                 return min(candidates_off_tomorrow,
-                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
+                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours'])))
+
+        # ส่ง min_hours เข้าไปใน lambda function สำหรับทุกกรณี
         if self.is_night_shift(shift_type):
-            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
+            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours'])))
         elif shift_type.startswith('C8'):
-            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x)))
+            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours'])))
         else:
-            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x))
+            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours']))
 
     def calculate_preference_penalty(self, pharmacist, schedule):
         penalty = 0
@@ -2344,4 +2359,5 @@ if run_button:
         st.error(
 
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
+
 
