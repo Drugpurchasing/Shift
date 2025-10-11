@@ -446,25 +446,10 @@ class PharmacistScheduler:
         hour_values = list(hours_dict.values())
         hour_stdev = stdev(hour_values)
         hour_range = max(hour_values) - min(hour_values)
-        
         stdev_penalty = hour_stdev ** 2
         range_penalty = 0
-
-        # <<< MODIFICATION START >>>
-        # 1. เปลี่ยนเกณฑ์ผลต่างชั่วโมง (hour_range) จาก 10 เป็น 12 ตามที่ต้องการ
-        # 2. เพิ่มตัวคูณ (multiplier) เช่น 5 เพื่อให้การละเมิดเกณฑ์นี้มีบทลงโทษที่รุนแรงขึ้นมาก
-        #    ทำให้อัลกอริทึมพยายามอย่างยิ่งที่จะรักษาผลต่างไม่ให้เกิน 12 ชั่วโมง
-        
-        # Original lines:
-        # if hour_range > 10:
-        #     range_penalty = (hour_range - 10) ** 2
-            
-        # New lines:
-        if hour_range > 12:
-            # เพิ่มตัวคูณ (e.g., 5) เพื่อเพิ่มความสำคัญของการรักษาระยะห่างของชั่วโมง
-            range_penalty = 5 * ((hour_range - 12) ** 2)
-        # <<< MODIFICATION END >>>
-            
+        if hour_range > 10:
+            range_penalty = (hour_range - 10) ** 2
         return stdev_penalty + range_penalty
 
     def calculate_schedule_metrics(self, schedule, year, month):
@@ -552,7 +537,7 @@ class PharmacistScheduler:
                                                                       schedule_dict, pharmacist_hours,
                                                                       pharmacist_consecutive_days)
                 if available:
-                    chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day, pharmacist_hours)
+                    chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
                     pharmacist_to_assign = chosen['name']
                     schedule_dict[date][shift_type] = pharmacist_to_assign
                     self._update_shift_counts(pharmacist_to_assign, shift_type)
@@ -627,52 +612,30 @@ class PharmacistScheduler:
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
 
-    # <<< MODIFICATION: เพิ่ม min_hours และ shift_hours ใน signature >>>
-    def _calculate_suitability_score(self, pharmacist_data, min_hours, shift_hours):
+    def _calculate_suitability_score(self, pharmacist_data):
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
-        hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] / 100) ** 2
+        hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
         preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
+        return consecutive_penalty + hours_penalty + preference_penalty
 
-        # <<< MODIFICATION START: เพิ่มบทลงโทษสถานหนัก >>>
-        # หากการเพิ่มเวรนี้ทำให้ชั่วโมงของเภสัชกรคนนี้เกินกว่า (ชั่วโมงต่ำสุด + 12)
-        # ให้บวกค่าปรับที่สูงมากเข้าไป เพื่อผลักให้คนนี้ไปอยู่ท้ายสุดของตัวเลือก
-        range_breach_penalty = 0
-        projected_hours = pharmacist_data['current_hours'] + shift_hours
-        if projected_hours > (min_hours + 12):
-            range_breach_penalty = 10000  # ค่าปรับที่สูงมากๆ
-        # <<< MODIFICATION END >>>
-
-        return consecutive_penalty + hours_penalty + preference_penalty + range_breach_penalty
-
-    # <<< MODIFICATION: เพิ่ม pharmacist_hours ใน signature ของฟังก์ชัน >>>
-    def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day, pharmacist_hours):
-        # <<< MODIFICATION START >>>
-        # คำนวณหาชั่วโมงที่น้อยที่สุดของเภสัชกร "ทุกคน" ณ เวลานั้น
-        min_hours = 0
-        if pharmacist_hours: # ตรวจสอบว่า dict ไม่ใช่ค่าว่าง
-            min_hours = min(pharmacist_hours.values())
-        # <<< MODIFICATION END >>>
-
+    def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
         if self.is_night_shift(shift_type) and is_day_before_problem_day:
             problem_day = date + timedelta(days=1)
             problem_day_str = problem_day.strftime('%Y-%m-%d')
             candidates_off_tomorrow = []
             for p_data in available_pharmacists:
-                if problem_day_str in self.pharmacists[p_data['name']]['holidays']:
+                p_name = p_data['name']
+                if problem_day_str in self.pharmacists[p_name]['holidays']:
                     candidates_off_tomorrow.append(p_data)
-            
             if candidates_off_tomorrow:
-                # ส่ง min_hours เข้าไปใน lambda function เพื่อคำนวณคะแนน
                 return min(candidates_off_tomorrow,
-                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours'])))
-
-        # ส่ง min_hours เข้าไปใน lambda function สำหรับทุกกรณี
+                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
         if self.is_night_shift(shift_type):
-            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours'])))
+            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
         elif shift_type.startswith('C8'):
-            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours'])))
+            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x)))
         else:
-            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x, min_hours, self.shift_types[shift_type]['hours']))
+            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x))
 
     def calculate_preference_penalty(self, pharmacist, schedule):
         penalty = 0
@@ -685,20 +648,12 @@ class PharmacistScheduler:
     def is_schedule_better(self, current_metrics, best_metrics):
         current_unfilled = current_metrics.get('unfilled_problem_shifts', float('inf'))
         best_unfilled = best_metrics.get('unfilled_problem_shifts', float('inf'))
-        
         if current_unfilled < best_unfilled: return True
         if current_unfilled > best_unfilled: return False
-        
-        # <<< MODIFICATION START >>>
-        # Increased the weight for 'hour_imbalance_penalty' from 25.0 to 50.0
-        # to make hour balancing a more critical factor in the final schedule selection.
-        weights = {'preference_score': 1.0, 'hour_imbalance_penalty': 50.0, 'night_variance': 800.0,
+        weights = {'preference_score': 1.0, 'hour_imbalance_penalty': 25.0, 'night_variance': 800.0,
                    'weekend_off_variance': 1000.0}
-        # <<< MODIFICATION END >>>
-
         current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
-        
         return current_score < best_score
 
     # ... The rest of the PharmacistScheduler class (export functions, etc.) remains unchanged ...
@@ -2357,7 +2312,6 @@ if run_button:
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error(
-
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
 
 
