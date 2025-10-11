@@ -614,7 +614,14 @@ class PharmacistScheduler:
 
     def _calculate_suitability_score(self, pharmacist_data):
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
-        hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
+
+        # <<< MODIFICATION START >>>
+        # Changed from a linear penalty to a scaled quadratic penalty to more aggressively balance hours.
+        # Original line: hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
+        # The scaling factor (100) prevents the hour penalty from completely overpowering other factors.
+        hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] / 100) ** 2
+        # <<< MODIFICATION END >>>
+
         preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
         return consecutive_penalty + hours_penalty + preference_penalty
 
@@ -648,12 +655,20 @@ class PharmacistScheduler:
     def is_schedule_better(self, current_metrics, best_metrics):
         current_unfilled = current_metrics.get('unfilled_problem_shifts', float('inf'))
         best_unfilled = best_metrics.get('unfilled_problem_shifts', float('inf'))
+        
         if current_unfilled < best_unfilled: return True
         if current_unfilled > best_unfilled: return False
-        weights = {'preference_score': 1.0, 'hour_imbalance_penalty': 25.0, 'night_variance': 800.0,
+        
+        # <<< MODIFICATION START >>>
+        # Increased the weight for 'hour_imbalance_penalty' from 25.0 to 50.0
+        # to make hour balancing a more critical factor in the final schedule selection.
+        weights = {'preference_score': 1.0, 'hour_imbalance_penalty': 50.0, 'night_variance': 800.0,
                    'weekend_off_variance': 1000.0}
+        # <<< MODIFICATION END >>>
+
         current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
+        
         return current_score < best_score
 
     # ... The rest of the PharmacistScheduler class (export functions, etc.) remains unchanged ...
@@ -2312,4 +2327,5 @@ if run_button:
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error(
+
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
