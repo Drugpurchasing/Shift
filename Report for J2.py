@@ -6,6 +6,7 @@ from PyPDF2 import PdfMerger
 from openpyxl.styles import Alignment, Font
 from PIL import Image
 import time
+import requests  # NEW
 
 # ==============================================================================
 # Page Configuration (ต้องเป็นคำสั่งแรก)
@@ -16,10 +17,32 @@ st.set_page_config(
     layout="wide"
 )
 
+# ==============================================================================
+# Global: Google Sheets Drug Master Loader
+# ==============================================================================
+DRUG_MASTER_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJpIKf_q4h4h1VEIM0tT1MlMvoEw1PXLYMxMv_c3abXFvAIBS0tWHxLL0sDjuuBrPjbrTP7lJH-NQw/pub?output=xlsx"
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def load_drug_master():
+    """
+    Download and read the 'Drug master' sheet from the published Google Sheets xlsx.
+    Returns a pandas DataFrame or None if failed.
+    """
+    try:
+        resp = requests.get(DRUG_MASTER_URL, timeout=20)
+        resp.raise_for_status()
+        bio = io.BytesIO(resp.content)
+        dfmaster = pd.read_excel(bio, sheet_name="Drug master")
+        return dfmaster
+    except Exception as e:
+        st.error(f"ไม่สามารถดาวน์โหลด/อ่าน Drug master จาก Google Sheets ได้: {e}")
+        return None
+
 
 # ==============================================================================
-# Functions 1-7 (มีการปรับ process_kpi_report ให้รับ Rate File หลายไฟล์)
+# Functions 1-7 (ปรับให้ไปเรียก Drug master จาก Google Sheets)
 # ==============================================================================
+
 def process_j2_report(uploaded_files, progress_bar):
     progress_bar.progress(10, text="[10%] กำลังรวมชีตข้อมูล...")
     dfs = []
@@ -33,9 +56,10 @@ def process_j2_report(uploaded_files, progress_bar):
             progress_bar.progress(10 + int(40 * (i + 1) / len(uploaded_files)),
                                   text=f"[{10 + int(40 * (i + 1) / len(uploaded_files))}%] ประมวลผลไฟล์ {file_obj.name}...")
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}");
+            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}")
             return None
-    if not dfs: st.warning("ไม่พบข้อมูลในไฟล์ที่อัปโหลด"); return None
+    if not dfs:
+        st.warning("ไม่พบข้อมูลในไฟล์ที่อัปโหลด"); return None
 
     progress_bar.progress(50, text="[50%] กำลังทำความสะอาดและจัดโครงสร้างข้อมูล...")
     stacked_df = pd.concat(dfs, ignore_index=True)
@@ -45,8 +69,8 @@ def process_j2_report(uploaded_files, progress_bar):
     new_column_labels = ["ลำดับ", "วันที่จ่ายยา", "เวลา", "เลขที่เอกสาร", "VN / AN", "HN", "ชื่อ", "อายุ", "สิทธิ์",
                          "แพทย์", "Clinic", "Ward", "Material", "รายการยา", "จำนวน", "หน่วย", "ราคาขายR", "ราคารวม",
                          "Store"]
-    if len(stacked_df.columns) != len(new_column_labels): st.error(
-        f"จำนวนคอลัมน์ไม่ตรงกัน คาดว่าต้องมี {len(new_column_labels)} แต่พบ {len(stacked_df.columns)}"); return None
+    if len(stacked_df.columns) != len(new_column_labels):
+        st.error(f"จำนวนคอลัมน์ไม่ตรงกัน คาดว่าต้องมี {len(new_column_labels)} แต่พบ {len(stacked_df.columns)}"); return None
     stacked_df.columns = new_column_labels
 
     progress_bar.progress(70, text="[70%] กำลังกรองยาตามรายการ จ2...")
@@ -66,9 +90,9 @@ def process_j2_report(uploaded_files, progress_bar):
     return merged_df
 
 
-def process_drug_rate_analysis(data_files, master_file, progress_bar):
+def process_drug_rate_analysis(data_files, progress_bar):
     progress_bar.progress(10, text="[10%] กำลังรวมและทำความสะอาดข้อมูลดิบ...")
-    dfs = [];
+    dfs = []
     for file_obj in data_files:
         try:
             source_workbook = pd.ExcelFile(file_obj)
@@ -77,15 +101,16 @@ def process_drug_rate_analysis(data_files, master_file, progress_bar):
                 if i == 0: df = df.iloc[2:]
                 dfs.append(df)
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}");
+            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}")
             return None, {}
-    if not dfs: st.warning("ไม่พบข้อมูลในไฟล์ที่อัปโหลด"); return None, {}
+    if not dfs:
+        st.warning("ไม่พบข้อมูลในไฟล์ที่อัปโหลด"); return None, {}
 
     stacked_df = pd.concat(dfs, ignore_index=True)
-    try:
-        dfmaster = pd.read_excel(master_file, sheet_name="Drug master")
-    except Exception as e:
-        st.error(f"ไม่สามารถอ่านชีท 'Drug master' จากไฟล์ Master ได้: {e}");
+
+    # Load master from Google Sheets
+    dfmaster = load_drug_master()
+    if dfmaster is None:
         return None, {}
 
     progress_bar.progress(30, text="[30%] กำลังผสานข้อมูลกับ Master File...")
@@ -95,57 +120,64 @@ def process_drug_rate_analysis(data_files, master_file, progress_bar):
     new_column_labels = ["ลำดับ", "วันที่จ่ายยา", "เวลา", "เลขที่เอกสาร", "VN / AN", "HN", "ชื่อ", "อายุ", "สิทธิ์",
                          "แพทย์", "Clinic", "Ward", "Material", "รายการยา", "จำนวน", "หน่วย", "ราคาขายR", "ราคารวม",
                          "Store"]
-    if len(stacked_df.columns) != len(new_column_labels): st.error(
-        f"จำนวนคอลัมน์ไม่ตรงกัน คาดว่าต้องมี {len(new_column_labels)} แต่พบ {len(stacked_df.columns)}"); return None, {}
-    stacked_df.columns = new_column_labels;
-    merged_df = pd.merge(stacked_df, dfmaster, on="Material", how="left");
+    if len(stacked_df.columns) != len(new_column_labels):
+        st.error(f"จำนวนคอลัมน์ไม่ตรงกัน คาดว่าต้องมี {len(new_column_labels)} แต่พบ {len(stacked_df.columns)}"); return None, {}
+    stacked_df.columns = new_column_labels
+    merged_df = pd.merge(stacked_df, dfmaster, on="Material", how="left")
 
     progress_bar.progress(50, text="[50%] กำลังคำนวณราคาทุนและจัดหมวดหมู่...")
     merged_df['Store'] = merged_df['Store'].astype('object')
-    valid_store_values = [2403, 2401, 2408, 2409, 2417, 2402];
+    valid_store_values = [2403, 2401, 2408, 2409, 2417, 2402]
     merged_df.loc[~merged_df["Store"].isin(valid_store_values), "Store"] = "อื่นๆ"
-    merged_df["ราคาทุนรวม"] = pd.to_numeric(merged_df["จำนวน"], errors='coerce') * pd.to_numeric(merged_df["ต้นทุน"],
-                                                                                                 errors='coerce')
-    merged_df['วันที่จ่ายยา'] = pd.to_datetime(merged_df['วันที่จ่ายยา'], errors='coerce');
+    merged_df["ราคาทุนรวม"] = pd.to_numeric(merged_df["จำนวน"], errors='coerce') * pd.to_numeric(merged_df.get("ต้นทุน", np.nan), errors='coerce')
+    merged_df['วันที่จ่ายยา'] = pd.to_datetime(merged_df['วันที่จ่ายยา'], errors='coerce')
     merged_df['Month'] = merged_df['วันที่จ่ายยา'].dt.to_period('M')
     merged_df = merged_df[merged_df['Store'] != "อื่นๆ"]
+
     direct_map = {
         '(ตรวจที่รพ.จุฬาภรณ์) โครงการคัดกรองมะเร็งปากมดลูก ณ รพ.จุฬาภรณ์และคณะแพทย์ศาสตร์วชิรพยาบาล': 'จ่ายเอง',
         '[TopUp] สวัสดิการเจ้าหน้าที่ราชวิทยาลัยจุฬาภรณ์': 'สวัสดิการเจ้าหน้าที่',
-        'องค์การปกครองส่วนท้องถิ่นบำนาญ(เบิกจ่ายตรง)': 'ข้าราชการ'}
+        'องค์การปกครองส่วนท้องถิ่นบำนาญ(เบิกจ่ายตรง)': 'ข้าราชการ'
+    }
     merged_df["สิทธิ์"] = merged_df["สิทธิ์"].map(direct_map).fillna(merged_df["สิทธิ์"])
 
     progress_bar.progress(70, text="[70%] กำลังแยกข้อมูล OPD/IPD และคำนวณ Rate...")
-    opd_merged_df = merged_df[
-        merged_df['เลขที่เอกสาร'].isna() | (merged_df['เลขที่เอกสาร'].astype(str).str.strip().isin(['', '0']))]
-    opd_2409 = opd_merged_df[opd_merged_df['Store'].notna() & (opd_merged_df['Store'] == 2409)];
+    opd_merged_df = merged_df[merged_df['เลขที่เอกสาร'].isna() | (merged_df['เลขที่เอกสาร'].astype(str).str.strip().isin(['', '0']))]
+    opd_2409 = opd_merged_df[opd_merged_df['Store'].notna() & (opd_merged_df['Store'] == 2409)]
     opd_not_2409 = opd_merged_df[opd_merged_df['Store'].notna() & (opd_merged_df['Store'] != 2409)]
-    ipd_merged_df = merged_df[
-        merged_df['Clinic'].isna() | (merged_df['Clinic'].astype(str).str.strip().isin(['', '0']))]
-    ipd_2409 = ipd_merged_df[ipd_merged_df['Store'].notna() & (ipd_merged_df['Store'] == 2409)];
+
+    ipd_merged_df = merged_df[merged_df['Clinic'].isna() | (merged_df['Clinic'].astype(str).str.strip().isin(['', '0']))]
+    ipd_2409 = ipd_merged_df[ipd_merged_df['Store'].notna() & (ipd_merged_df['Store'] == 2409)]
     ipd_not_2409 = ipd_merged_df[ipd_merged_df['Store'].notna() & (ipd_merged_df['Store'] != 2409)]
 
     def count_unique_by_month(df, subset_cols):
         return df.drop_duplicates(subset=subset_cols).groupby('Month').size().reset_index(name='Unique_Count')
 
-    uniqueOPD = count_unique_by_month(opd_not_2409, ['VN / AN', 'HN', 'Clinic', 'Month']);
+    uniqueOPD = count_unique_by_month(opd_not_2409, ['VN / AN', 'HN', 'Clinic', 'Month'])
     uniqueOPD2409 = count_unique_by_month(opd_2409, ['VN / AN', 'HN', 'Clinic', 'Month'])
-    uniqueIPD = count_unique_by_month(ipd_not_2409, ['เลขที่เอกสาร', 'HN', 'Ward', 'Month']);
+    uniqueIPD = count_unique_by_month(ipd_not_2409, ['เลขที่เอกสาร', 'HN', 'Ward', 'Month'])
     uniqueIPD2409 = count_unique_by_month(ipd_2409, ['เลขที่เอกสาร', 'HN', 'Ward', 'Month'])
-    merged_df["หน่วย"] = pd.to_numeric(merged_df["หน่วย"].astype(str).str.replace(r'.*/ ', '', regex=True),
-                                       errors='coerce').fillna(1).astype(int)
-    merged_df["จำนวน"] = merged_df["จำนวน"] * merged_df["หน่วย"];
+
+    merged_df["หน่วย"] = pd.to_numeric(merged_df["หน่วย"].astype(str).str.replace(r'.*/ ', '', regex=True), errors='coerce').fillna(1).astype(int)
+    merged_df["จำนวน"] = merged_df["จำนวน"] * merged_df["หน่วย"]
     merged_df['HN'] = merged_df['HN'].astype(str).str.replace('.0', '', regex=False)
-    grouped_countHN_df = merged_df.pivot_table(index=['Material', 'Material description'], columns='Month', values='HN',
-                                               aggfunc=pd.Series.nunique).reset_index()
-    grouped_sumRate_df = merged_df.pivot_table(index=['Material', 'Material description', 'หน่วยย่อย'], columns='Month',
-                                               values='จำนวน', aggfunc='sum').reset_index()
-    grouped_sumRateSplit_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'หน่วยย่อย'],
-                                                    columns='Month', values='จำนวน', aggfunc='sum').reset_index()
-    output_dfs = {"Rate แยกเดือน": grouped_sumRate_df, "Rate (M-Sloc)": grouped_sumRateSplit_df,
-                  "จำนวนเคสต่อเดือน": grouped_countHN_df, "Raw": merged_df,
-                  "Summary_Data": {'จำนวนใบยา OPD': uniqueOPD, 'จำนวนใบยา OPD 2409': uniqueOPD2409,
-                                   'จำนวนใบยา IPD': uniqueIPD, 'จำนวนใบยา IPD 2409': uniqueIPD2409, }}
+
+    grouped_countHN_df = merged_df.pivot_table(index=['Material', 'Material description'], columns='Month', values='HN', aggfunc=pd.Series.nunique).reset_index()
+    grouped_sumRate_df = merged_df.pivot_table(index=['Material', 'Material description', 'หน่วยย่อย'], columns='Month', values='จำนวน', aggfunc='sum').reset_index()
+    grouped_sumRateSplit_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'หน่วยย่อย'], columns='Month', values='จำนวน', aggfunc='sum').reset_index()
+
+    output_dfs = {
+        "Rate แยกเดือน": grouped_sumRate_df,
+        "Rate (M-Sloc)": grouped_sumRateSplit_df,
+        "จำนวนเคสต่อเดือน": grouped_countHN_df,
+        "Raw": merged_df,
+        "Summary_Data": {
+            'จำนวนใบยา OPD': uniqueOPD,
+            'จำนวนใบยา OPD 2409': uniqueOPD2409,
+            'จำนวนใบยา IPD': uniqueIPD,
+            'จำนวนใบยา IPD 2409': uniqueIPD2409,
+        }
+    }
 
     progress_bar.progress(90, text="[90%] กำลังสร้างไฟล์ดาวน์โหลด...")
     return merged_df, output_dfs
@@ -153,7 +185,7 @@ def process_drug_rate_analysis(data_files, master_file, progress_bar):
 
 def process_epi_usage(uploaded_files, progress_bar):
     progress_bar.progress(10, text="[10%] กำลังรวมชีตข้อมูล...")
-    dfs = [];
+    dfs = []
     for i, file_obj in enumerate(uploaded_files):
         try:
             source_workbook = pd.ExcelFile(file_obj)
@@ -162,9 +194,10 @@ def process_epi_usage(uploaded_files, progress_bar):
                 if j == 0: df = df.iloc[2:]
                 dfs.append(df)
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}");
+            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_obj.name}: {e}")
             return None
-    if not dfs: st.warning("ไม่พบข้อมูลในไฟล์ที่อัปโหลด"); return None
+    if not dfs:
+        st.warning("ไม่พบข้อมูลในไฟล์ที่อัปโหลด"); return None
 
     progress_bar.progress(50, text="[50%] กำลังทำความสะอาดข้อมูล...")
     stacked_df = pd.concat(dfs, ignore_index=True)
@@ -174,8 +207,8 @@ def process_epi_usage(uploaded_files, progress_bar):
     new_column_labels = ["ลำดับ", "วันที่จ่ายยา", "เวลา", "เลขที่เอกสาร", "VN / AN", "HN", "ชื่อ", "อายุ", "สิทธิ์",
                          "แพทย์", "Clinic", "Ward", "Material", "รายการยา", "จำนวน", "หน่วย", "ราคาขายR", "ราคารวม",
                          "Store"]
-    if len(stacked_df.columns) != len(new_column_labels): st.error(
-        f"จำนวนคอลัมน์ไม่ตรงกัน คาดว่าต้องมี {len(new_column_labels)} แต่พบ {len(stacked_df.columns)}"); return None
+    if len(stacked_df.columns) != len(new_column_labels):
+        st.error(f"จำนวนคอลัมน์ไม่ตรงกัน คาดว่าต้องมี {len(new_column_labels)} แต่พบ {len(stacked_df.columns)}"); return None
     stacked_df.columns = new_column_labels
 
     progress_bar.progress(70, text="[70%] กำลังกรองยา EPI และสรุปยอด...")
@@ -189,11 +222,11 @@ def process_epi_usage(uploaded_files, progress_bar):
     return summary_df
 
 
-def process_narcotics_report(xls_files, receipt_report_file, master_file, progress_bar):
+def process_narcotics_report(xls_files, receipt_report_file, progress_bar):
     def convert_date_to_thai(date_str):
         if not pd.isna(date_str):
             try:
-                date_obj = pd.to_datetime(date_str);
+                date_obj = pd.to_datetime(date_str)
                 month_mapping = {1: 'มกราคม', 2: 'กุมภาพันธ์', 3: 'มีนาคม', 4: 'เมษายน', 5: 'พฤษภาคม', 6: 'มิถุนายน',
                                  7: 'กรกฎาคม', 8: 'สิงหาคม', 9: 'กันยายน', 10: 'ตุลาคม', 11: 'พฤศจิกายน', 12: 'ธันวาคม'}
                 return f"{date_obj.strftime('%d')} {month_mapping.get(date_obj.month, date_obj.month)} {str(date_obj.year + 543)}"
@@ -208,15 +241,15 @@ def process_narcotics_report(xls_files, receipt_report_file, master_file, progre
             df = pd.read_excel(file_obj)
             df['โรงพยาบาลจุฬาภรณ์'] = pd.to_datetime(df['โรงพยาบาลจุฬาภรณ์'], errors='coerce')
             df = df.dropna(subset=['โรงพยาบาลจุฬาภรณ์']).sort_values(by='โรงพยาบาลจุฬาภรณ์').reset_index(drop=True)
-            df.columns = range(df.shape[1]);
-            value_to_expand = str(df.at[0, 1]).replace("รวม", "").strip();
+            df.columns = range(df.shape[1])
+            value_to_expand = str(df.at[0, 1]).replace("รวม", "").strip()
             df[1] = value_to_expand
             df = df[df[4].apply(lambda x: isinstance(x, str) and x.strip() != '')]
-            df[4] = pd.to_numeric(df[4], errors='coerce').dropna().astype(int);
+            df[4] = pd.to_numeric(df[4], errors='coerce').dropna().astype(int)
             df = df.drop(0, axis=1)
-            negative_values = df[6] < 0;
-            df.insert(6, '6.5', 0);
-            df.loc[negative_values, '6.5'] = df.loc[negative_values, 6];
+            negative_values = df[6] < 0
+            df.insert(6, '6.5', 0)
+            df.loc[negative_values, '6.5'] = df.loc[negative_values, 6]
             df.loc[df[6] < 0, 6] = 0
             new_row = pd.DataFrame(
                 {1: [value_to_expand], 5: ["รวมทั้งสิ้น"], 6: [df[6].sum()], '6.5': [df['6.5'].sum()],
@@ -227,38 +260,43 @@ def process_narcotics_report(xls_files, receipt_report_file, master_file, progre
             df = df[['วัน เดือน ปี', 'ชื่อยาเสพติดให้โทษประเภท 2', 'ชื่อ', 'รับ', 'จ่าย', 'หน่วย', 'ที่อยู่']]
             df['จ่ายไป'] = df['ชื่อ'].astype(str) + " " + df['ที่อยู่'].astype(str)
             df = df[['วัน เดือน ปี', 'ชื่อยาเสพติดให้โทษประเภท 2', 'จ่ายไป', 'หน่วย', 'รับ', 'หน่วย', 'จ่าย', 'หน่วย']]
-            df['วัน เดือน ปี'] = df['วัน เดือน ปี'].apply(convert_date_to_thai);
-            df.insert(3, 'รับจาก อย', '');
+            df['วัน เดือน ปี'] = df['วัน เดือน ปี'].apply(convert_date_to_thai)
+            df.insert(3, 'รับจาก อย', '')
             df.insert(2, 'รหัส', '')
             df.columns = ['วัน เดือน ปี', 'ชื่อยาเสพติดให้โทษประเภท 2', 'รหัส', 'จ่ายไป', 'หน่วย1', 'รับ', 'หน่วย2',
                           'จ่าย', 'หน่วย3', 'รับจาก อย']
-            df = df[
-                ['วัน เดือน ปี', 'ชื่อยาเสพติดให้โทษประเภท 2', 'รหัส', 'รับจาก อย', 'จ่ายไป', 'หน่วย1', 'รับ', 'หน่วย2',
-                 'จ่าย', 'หน่วย3']]
+            df = df[['วัน เดือน ปี', 'ชื่อยาเสพติดให้โทษประเภท 2', 'รหัส', 'รับจาก อย', 'จ่ายไป', 'หน่วย1', 'รับ', 'หน่วย2',
+                     'จ่าย', 'หน่วย3']]
             stacked_df_list.append(df)
             progress_bar.progress(10 + int(30 * (i + 1) / len(xls_files)),
                                   text=f"[{10 + int(30 * (i + 1) / len(xls_files))}%] ประมวลผลไฟล์จ่ายยา {file_obj.name}...")
         except Exception as e:
-            st.warning(f"ไม่สามารถประมวลผลไฟล์ {file_obj.name}: {e}");
+            st.warning(f"ไม่สามารถประมวลผลไฟล์ {file_obj.name}: {e}")
             continue
-    if not stacked_df_list: st.error("ไม่สามารถประมวลผลไฟล์ข้อมูลการจ่ายยาได้เลย"); return None
+    if not stacked_df_list:
+        st.error("ไม่สามารถประมวลผลไฟล์ข้อมูลการจ่ายยาได้เลย"); return None
     stacked_df = pd.concat(stacked_df_list, axis=0, ignore_index=True)
 
     progress_bar.progress(50, text="[50%] กำลังประมวลผลไฟล์รายงานรับเข้า...")
     try:
         dfT = pd.read_excel(receipt_report_file, sheet_name='Sheet1')
-        dfmaster = pd.read_excel(master_file, sheet_name="Drug master")[["Material", "TradeName"]]
-        dfT = pd.merge(dfT, dfmaster, how="left")[
-            ["Posting Date", "TradeName", "Batch", 'Receiving stor. loc.', "Quantity"]]
+
+        # Load master for TradeName mapping
+        dfmaster = load_drug_master()
+        if dfmaster is None:
+            return None
+        dfmaster_subset = dfmaster[["Material", "TradeName"]] if "TradeName" in dfmaster.columns else dfmaster[["Material"]]
+        dfT = pd.merge(dfT, dfmaster_subset, how="left")
+        dfT = dfT[["Posting Date", "TradeName", "Batch", 'Receiving stor. loc.', "Quantity"]]
         dfT.columns = ['วัน เดือน ปี', "ชื่อยาเสพติดให้โทษประเภท 2", 'รหัส', 'จ่ายไป', 'รับจาก อย']
-        dfT['วัน เดือน ปี'] = dfT['วัน เดือน ปี'].apply(convert_date_to_thai);
-        dfT.insert(5, 'หน่วย', '');
-        dfT.insert(6, 'รับ', '');
+        dfT['วัน เดือน ปี'] = dfT['วัน เดือน ปี'].apply(convert_date_to_thai)
+        dfT.insert(5, 'หน่วย', '')
+        dfT.insert(6, 'รับ', '')
         dfT.insert(7, 'จ่าย', '')
         dfT = dfT[['วัน เดือน ปี', 'ชื่อยาเสพติดให้โทษประเภท 2', 'รหัส', 'จ่ายไป', 'รับจาก อย', 'หน่วย', 'รับ', 'หน่วย',
                    'จ่าย', 'หน่วย']]
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์รายงานรับเข้า: {e}");
+        st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์รายงานรับเข้า: {e}")
         return None
 
     progress_bar.progress(80, text="[80%] กำลังสรุปข้อมูล...")
@@ -268,112 +306,134 @@ def process_narcotics_report(xls_files, receipt_report_file, master_file, progre
     return {'รายงานแยก': stacked_df, 'รายงานรวม': total_df, 'รายงานรับเข้า': dfT}
 
 
-def process_kpi_report(rate_files, inventory_file, master_file, progress_bar):
+def process_kpi_report(rate_files, inventory_file, progress_bar):
     progress_bar.progress(10, text="[10%] กำลังโหลดและรวมข้อมูลคงคลัง...")
     try:
-        remain = pd.read_excel(inventory_file, sheet_name="Sheet1");
+        remain = pd.read_excel(inventory_file, sheet_name="Sheet1")
         remain = remain.groupby('Storage location')['Stock Value on Period End'].sum().reset_index()
         remain = remain.rename(columns={'Storage location': 'Store'})
 
-        # --- NEW LOGIC: Combine multiple rate files ---
+        # Combine multiple rate files
         all_rate_dfs = []
         for i, rate_file in enumerate(rate_files):
-            source_workbook = pd.ExcelFile(rate_file);
+            source_workbook = pd.ExcelFile(rate_file)
             dfs = [source_workbook.parse(sheet_name, header=None) for sheet_name in source_workbook.sheet_names]
-            dfs[0] = dfs[0].iloc[2:];
+            if len(dfs) > 0:
+                dfs[0] = dfs[0].iloc[2:]
             all_rate_dfs.extend(dfs)
             progress_bar.progress(10 + int(20 * (i + 1) / len(rate_files)),
                                   text=f"[{10 + int(20 * (i + 1) / len(rate_files))}%] กำลังรวมไฟล์ Rate {rate_file.name}...")
 
         stacked_df = pd.concat(all_rate_dfs, ignore_index=True)
-        # --- END NEW LOGIC ---
 
-        dfmaster = pd.read_excel(master_file, sheet_name="Drug master")
+        # Load master
+        dfmaster = load_drug_master()
+        if dfmaster is None:
+            return None
+
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์เริ่มต้น: {e}");
+        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์เริ่มต้น: {e}")
         return None
 
     progress_bar.progress(35, text="[35%] กำลังผสานและทำความสะอาดข้อมูล Rate...")
     stacked_df = stacked_df.dropna(subset=[stacked_df.columns[12]])
-    stacked_df[stacked_df.columns[12]] = pd.to_numeric(stacked_df[stacked_df.columns[12]], errors='coerce');
+    stacked_df[stacked_df.columns[12]] = pd.to_numeric(stacked_df[stacked_df.columns[12]], errors='coerce')
     stacked_df[stacked_df.columns[18]] = pd.to_numeric(stacked_df[stacked_df.columns[18]], errors='coerce')
     new_column_labels = ["ลำดับ", "วันที่จ่ายยา", "เวลา", "เลขที่เอกสาร", "VN / AN", "HN", "ชื่อ", "อายุ", "สิทธิ์",
                          "แพทย์", "Clinic", "Ward", "Material", "รายการยา", "จำนวน", "หน่วย", "ราคาขายR", "ราคารวม",
                          "Store"]
-    stacked_df.columns = new_column_labels;
-    merged_df = pd.merge(stacked_df, dfmaster, on="Material", how="left");
+    stacked_df.columns = new_column_labels
+    merged_df = pd.merge(stacked_df, dfmaster, on="Material", how="left")
 
     progress_bar.progress(50, text="[50%] กำลังคำนวณยอดขายรวม...")
     merged_df['Store'] = merged_df['Store'].astype('object')
-    valid_store_values = [2403, 2401, 2408, 2409, 2417, 2402];
-    merged_df.loc[~merged_df["Store"].isin(valid_store_values), "Store"] = "อื่นๆ";
+    valid_store_values = [2403, 2401, 2408, 2409, 2417, 2402]
+    merged_df.loc[~merged_df["Store"].isin(valid_store_values), "Store"] = "อื่นๆ"
     merged_df = merged_df[merged_df['Store'] != "อื่นๆ"]
     merged_df["หน่วย"] = pd.to_numeric(merged_df["หน่วย"].astype(str).str.replace(r'.*/ ', '', regex=True),
-                                       errors='coerce').fillna(1).astype(int);
+                                        errors='coerce').fillna(1).astype(int)
     merged_df["จำนวน"] = merged_df["จำนวน"] * merged_df["หน่วย"]
-    if "ต้นทุน" not in merged_df.columns: st.error("ไม่พบคอลัมน์ 'ต้นทุน' ในข้อมูล"); return None
+
+    if "ต้นทุน" not in merged_df.columns:
+        st.error("ไม่พบคอลัมน์ 'ต้นทุน' ในข้อมูล Master")
+        return None
+
     merged_df["ราคาทุนรวม"] = merged_df["จำนวน"] * merged_df["ต้นทุน"]
     grouped_sumRate_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'หน่วยย่อย'],
                                                values=['จำนวน', "ราคาทุนรวม", "ราคารวม"], aggfunc='sum').reset_index()
 
     progress_bar.progress(70, text="[70%] กำลังคำนวณวันสำรองคงคลัง (DOI)...")
     grouped_Valuesum_df = merged_df.groupby('Store')[['ราคาทุนรวม', 'ราคารวม']].sum().reset_index()
-    grouped_Valuesum_df.columns = ['Store', 'Sum of Cost price', 'Sum of sale price'];
+    grouped_Valuesum_df.columns = ['Store', 'Sum of Cost price', 'Sum of sale price']
     remainFinal = pd.merge(remain, grouped_Valuesum_df, on='Store', how='left')
     with np.errstate(divide='ignore', invalid='ignore'):
-        remainFinal["วันสำรองคงคลัง"] = (remainFinal["Stock Value on Period End"] / remainFinal[
-            "Sum of Cost price"]) * 30
-    remainFinal.replace([np.inf, -np.inf], 0, inplace=True);
+        remainFinal["วันสำรองคงคลัง"] = (remainFinal["Stock Value on Period End"] / remainFinal["Sum of Cost price"]) * 30
+    remainFinal.replace([np.inf, -np.inf], 0, inplace=True)
     remainFinal["วันสำรองคงคลัง"].fillna(0, inplace=True)
 
     progress_bar.progress(90, text="[90%] กำลังสร้างไฟล์ดาวน์โหลด...")
     return {'ยอดขาย-คงคลัง-สำรองคงคลัง': remainFinal, 'ยอดขาย': grouped_sumRate_df, 'Raw': merged_df}
 
 
-def process_abc_analysis(inventory_files, master_file, progress_bar):
+def process_abc_analysis(inventory_files, progress_bar):
     progress_bar.progress(10, text="[10%] กำลังรวมและจัดเตรียมข้อมูลการใช้งาน...")
     try:
         all_dfs = [pd.read_excel(fp) for fp in inventory_files]
         consolidated_df = pd.concat(all_dfs, ignore_index=True)
-        master_df = pd.read_excel(master_file, sheet_name='Drug master', usecols=['Material', 'Drug group'])
+
+        # Load master for Drug group
+        master_df = load_drug_master()
+        if master_df is None:
+            return None
+        master_df = master_df[['Material', 'Drug group']]
         master_df['Material'] = master_df['Material'].astype(str)
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์: {e}");
+        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์: {e}")
         return None
 
     progress_bar.progress(30, text="[30%] กำลังคำนวณมูลค่าการใช้งานรายเดือน...")
-    df = consolidated_df;
-    df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce');
+    df = consolidated_df
+    df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
     df.dropna(subset=['Posting Date'], inplace=True)
-    df['MonthYear'] = df['Posting Date'].dt.to_period('M');
+    df['MonthYear'] = df['Posting Date'].dt.to_period('M')
     df['Amt.in Loc.Cur.'] = pd.to_numeric(df['Amt.in Loc.Cur.'], errors='coerce').fillna(0)
-    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0);
+    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
     df['Material'] = df['Material'].astype(str)
+
     monthly_data = df.groupby(['Material', 'Material description', 'Storage location', 'MonthYear']).agg(
-        MonthlyNetConsumption=('Amt.in Loc.Cur.', 'sum'), MonthlyNetQuantity=('Quantity', 'sum')).reset_index()
-    monthly_qty_pivot = monthly_data.pivot_table(index=['Material', 'Material description', 'Storage location'],
-                                                 columns='MonthYear', values='MonthlyNetQuantity', fill_value=0)
-    monthly_qty_pivot.columns = [f"Qty_{str(col)}" for col in monthly_qty_pivot.columns];
+        MonthlyNetConsumption=('Amt.in Loc.Cur.', 'sum'),
+        MonthlyNetQuantity=('Quantity', 'sum')
+    ).reset_index()
+
+    monthly_qty_pivot = monthly_data.pivot_table(
+        index=['Material', 'Material description', 'Storage location'],
+        columns='MonthYear', values='MonthlyNetQuantity', fill_value=0
+    )
+    monthly_qty_pivot.columns = [f"Qty_{str(col)}" for col in monthly_qty_pivot.columns]
     monthly_qty_pivot = monthly_qty_pivot.abs()
+
     final_agg = monthly_data.groupby(['Material', 'Material description', 'Storage location']).agg(
         AvgMonthlyNetQuantity=('MonthlyNetQuantity', 'mean'),
-        TotalNetConsumption=('MonthlyNetConsumption', 'sum')).reset_index()
+        TotalNetConsumption=('MonthlyNetConsumption', 'sum')
+    ).reset_index()
     final_agg['AvgMonthlyNetQuantity'] = final_agg['AvgMonthlyNetQuantity'].abs()
-    final_agg = pd.merge(final_agg, monthly_qty_pivot, on=['Material', 'Material description', 'Storage location'],
-                         how='left')
+    final_agg = pd.merge(final_agg, monthly_qty_pivot, on=['Material', 'Material description', 'Storage location'], how='left')
     final_agg['NetConsumptionValue'] = final_agg['TotalNetConsumption'].abs()
+
     abc_data_no_class = final_agg[final_agg['NetConsumptionValue'] > 0].copy()
-    if abc_data_no_class.empty: st.warning("ไม่พบข้อมูลการใช้งาน (consumption data) ที่มีมูลค่ามากกว่า 0"); return None
-    abc_data_no_class = pd.merge(abc_data_no_class, master_df, on='Material', how='left');
+    if abc_data_no_class.empty:
+        st.warning("ไม่พบข้อมูลการใช้งาน (consumption data) ที่มีมูลค่ามากกว่า 0"); return None
+
+    abc_data_no_class = pd.merge(abc_data_no_class, master_df, on='Material', how='left')
     abc_data_no_class['Drug group'].fillna('N/A', inplace=True)
 
     progress_bar.progress(60, text="[60%] กำลังจัดแบ่งกลุ่ม ABC ตามคลัง...")
     all_locations_classified = []
     for location in abc_data_no_class['Storage location'].unique():
-        loc_df = abc_data_no_class[abc_data_no_class['Storage location'] == location].copy();
+        loc_df = abc_data_no_class[abc_data_no_class['Storage location'] == location].copy()
         total_value_loc = loc_df['NetConsumptionValue'].sum()
         loc_df = loc_df.sort_values(by='NetConsumptionValue', ascending=False).reset_index(drop=True)
-        loc_df['PercentageValue'] = loc_df['NetConsumptionValue'] / total_value_loc if total_value_loc > 0 else 0;
+        loc_df['PercentageValue'] = loc_df['NetConsumptionValue'] / total_value_loc if total_value_loc > 0 else 0
         loc_df['CumulativePercentage'] = loc_df['PercentageValue'].cumsum()
 
         def assign_abc_class(cum_perc):
@@ -384,7 +444,7 @@ def process_abc_analysis(inventory_files, master_file, progress_bar):
             else:
                 return 'C'
 
-        loc_df['ABC_Class'] = loc_df['CumulativePercentage'].apply(assign_abc_class);
+        loc_df['ABC_Class'] = loc_df['CumulativePercentage'].apply(assign_abc_class)
         all_locations_classified.append(loc_df)
     final_results = pd.concat(all_locations_classified)
 
@@ -392,66 +452,70 @@ def process_abc_analysis(inventory_files, master_file, progress_bar):
     output_buffer = io.BytesIO()
     with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
         def apply_formats_and_hide_cols(writer, sheet_name, df):
-            worksheet = writer.sheets[sheet_name];
+            worksheet = writer.sheets[sheet_name]
             center_align = Alignment(horizontal='center', vertical='center')
-            col_map = {'AvgMonthlyNetQuantity': '#,##0', 'NetConsumptionValue': '#,##0.00', 'PercentageValue': '0.00%',
-                       'CumulativePercentage': '0.00%'}
+            col_map = {'AvgMonthlyNetQuantity': '#,##0', 'NetConsumptionValue': '#,##0.00',
+                       'PercentageValue': '0.00%', 'CumulativePercentage': '0.00%'}
             for col in df.columns:
-                if isinstance(col, str) and col.startswith('Qty_'): col_map[col] = '#,##0'
+                if isinstance(col, str) and col.startswith('Qty_'):
+                    col_map[col] = '#,##0'
             col_letters = {col_name: chr(65 + i) for i, col_name in enumerate(df.columns)}
             for col_name, num_format in col_map.items():
                 if col_name in col_letters:
                     col_letter = col_letters[col_name]
-                    for row in range(2, worksheet.max_row + 1): worksheet[
-                        f'{col_letter}{row}'].number_format = num_format
-            for row in range(2, worksheet.max_row + 1): worksheet[
-                f'{col_letters["ABC_Class"]}{row}'].alignment = center_align
+                    for row in range(2, worksheet.max_row + 1):
+                        worksheet[f'{col_letter}{row}'].number_format = num_format
+            for row in range(2, worksheet.max_row + 1):
+                worksheet[f'{col_letters["ABC_Class"]}{row}'].alignment = center_align
             for col_name in df.columns:
-                if isinstance(col_name, str) and col_name.startswith('Qty_'): worksheet.column_dimensions[
-                    col_letters[col_name]].hidden = True
+                if isinstance(col_name, str) and col_name.startswith('Qty_'):
+                    worksheet.column_dimensions[col_letters[col_name]].hidden = True
             for col in worksheet.columns:
                 if not worksheet.column_dimensions[col[0].column_letter].hidden:
-                    max_length = max(len(str(cell.value)) for cell in col if cell.value);
+                    max_length = max(len(str(cell.value)) for cell in col if cell.value)
                     worksheet.column_dimensions[col[0].column_letter].width = max_length + 2
 
-        worksheet = writer.book.create_sheet("Executive Summary", 0);
-        writer.sheets['Executive Summary'] = worksheet;
+        worksheet = writer.book.create_sheet("Executive Summary", 0)
+        writer.sheets['Executive Summary'] = worksheet
         current_row = 1
+
         summary_abc_count = final_results.groupby(['Storage location', 'ABC_Class']).size().unstack(fill_value=0)
         for c in ['A', 'B', 'C']:
-            if c not in summary_abc_count: summary_abc_count[c] = 0
-        summary_abc_count = summary_abc_count[['A', 'B', 'C']];
-        summary_abc_count['Total'] = summary_abc_count.sum(axis=1);
+            if c not in summary_abc_count:
+                summary_abc_count[c] = 0
+        summary_abc_count = summary_abc_count[['A', 'B', 'C']]
+        summary_abc_count['Total'] = summary_abc_count.sum(axis=1)
         summary_abc_count.loc['Total'] = summary_abc_count.sum()
-        worksheet.cell(row=current_row, column=1, value='สรุปจำนวนรายการ A, B, C ในแต่ละคลัง').font = Font(bold=True);
+        worksheet.cell(row=current_row, column=1, value='สรุปจำนวนรายการ A, B, C ในแต่ละคลัง').font = Font(bold=True)
         current_row += 1
-        summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0);
+        summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0)
         current_row += summary_abc_count.shape[0] + 3
+
         worksheet.cell(row=current_row, column=1,
-                       value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(
-            bold=True);
+                       value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
         current_row += 1
         top_groups = final_results.groupby('Storage location').apply(
             lambda x: x.groupby('Drug group')['NetConsumptionValue'].sum().nlargest(3)).reset_index()
         top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
-        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False);
+        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
         current_row += top_groups.shape[0] + 3
+
         worksheet.cell(row=current_row, column=1,
-                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True);
+                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
         current_row += 1
         top_items = final_results.groupby('Storage location').apply(
-            lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(
-                5)).reset_index()
+            lambda x: x.groupby(['Material', 'Material description'])['NetConsumptionValue'].sum().nlargest(5)).reset_index()
         top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
         top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
+
         for location in final_results['Storage location'].unique():
-            sheet_df = final_results[final_results['Storage location'] == location].copy();
+            sheet_df = final_results[final_results['Storage location'] == location].copy()
             sheet_name = f'SLoc_{location}'
             monthly_cols = sorted([col for col in sheet_df.columns if isinstance(col, str) and col.startswith('Qty_')])
             output_columns = ['Material', 'Material description', 'Storage location'] + monthly_cols + [
                 'AvgMonthlyNetQuantity', 'NetConsumptionValue', 'PercentageValue', 'CumulativePercentage', 'ABC_Class',
                 'Drug group']
-            sheet_df = sheet_df[output_columns];
+            sheet_df = sheet_df[output_columns]
             sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
             apply_formats_and_hide_cols(writer, sheet_name, sheet_df)
 
@@ -464,7 +528,6 @@ def process_abc_analysis(inventory_files, master_file, progress_bar):
 # ==============================================================================
 
 # --- Sidebar ---
-# st.sidebar.image("path/to/your/logo.png", width=150) # <-- ใส่ Path รูปโลโก้ของคุณที่นี่
 st.sidebar.title("CRA Analytics Suite")
 st.sidebar.markdown("---")
 
@@ -488,17 +551,17 @@ if app_mode == "🏠 หน้าหลัก":
         st.write("รวมไฟล์และกรองยาตามรายการที่กำหนด (J2)")
 
         st.info("💊 **รายงานยาเสพติดฯ**")
-        st.write("สร้างรายงานยาเสพติดจากการจ่าย, การรับเข้า, และไฟล์ Master")
+        st.write("สร้างรายงานยาเสพติดจากการจ่าย, การรับเข้า (Drug master โหลดจาก Google Sheets)")
 
         st.info("🔤 **วิเคราะห์ ABC**")
-        st.write("จัดกลุ่มยาตามมูลค่าการใช้งานและสร้างรายงานสรุป")
+        st.write("จัดกลุ่มยาตามมูลค่าการใช้งานและสร้างรายงานสรุป (Drug master โหลดจาก Google Sheets)")
 
     with col2:
         st.info("📈 **รายงานขายยาประจำเดือน**")
-        st.write("วิเคราะห์ข้อมูลยาโดยละเอียดพร้อมไฟล์ Master")
+        st.write("วิเคราะห์ข้อมูลยาโดยละเอียด (Drug master โหลดจาก Google Sheets)")
 
         st.info("🎯 **รายงาน KPI**")
-        st.write("คำนวณวันสำรองคงคลังจากข้อมูลยอดขายและยอดคงคลัง")
+        st.write("คำนวณวันสำรองคงคลังจากข้อมูลยอดขายและยอดคงคลัง (Drug master โหลดจาก Google Sheets)")
 
     with col3:
         st.info("💉 **รายงานยา EPI**")
@@ -522,16 +585,14 @@ elif "1. รายงานยา จ2" in app_mode:
             if final_df is not None:
                 progress_bar.progress(98, text="[98%] กำลังจัดเตรียมการดาวน์โหลด...")
                 output_buffer = io.BytesIO()
-                with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer: final_df.to_excel(writer,
-                                                                                                     sheet_name='Raw',
-                                                                                                     index=False)
+                with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                    final_df.to_excel(writer, sheet_name='Raw', index=False)
                 progress_bar.progress(100, text="[100%] การประมวลผลเสร็จสมบูรณ์")
 
-                # แสดงปุ่มดาวน์โหลด
-                st.download_button(label="📥 ดาวน์โหลดไฟล์ J2.xlsx", data=output_buffer.getvalue(), file_name="J2.xlsx",
+                st.download_button(label="📥 ดาวน์โหลดไฟล์ J2.xlsx", data=output_buffer.getvalue(),
+                                   file_name="J2.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
                 st.success("✅ ประมวลผลสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
         else:
@@ -543,52 +604,43 @@ elif "2. รายงานขายยาประจำเดือน" in app
     st.info("""
         **ขั้นตอนการใช้งาน:**
         1. **อัปโหลดไฟล์ข้อมูลดิบ:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการเบิกจ่ายยา (เลือกหลายไฟล์ได้)
-        2. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
+        2. **Drug master จะโหลดจาก Google Sheets อัตโนมัติ**
         3. **กดปุ่ม 'เริ่มการวิเคราะห์'**
     """)
-    col1, col2 = st.columns(2)
-    with col1:
-        uploaded_files_raw = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลดิบ (*.xls)", type="xls", accept_multiple_files=True,
-                                              key="raw_uploader")
-    with col2:
-        master_file = st.file_uploader("2. อัปโหลดไฟล์ Drug Master (*.xlsx)", type=["xlsx"], key="master_uploader")
+    uploaded_files_raw = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลดิบ (*.xls)", type="xls", accept_multiple_files=True,
+                                          key="raw_uploader")
 
     include_raw = st.checkbox("✅ รวมชีต 'Raw' ในไฟล์รายงาน (เพิ่มขนาดไฟล์)", value=False)
 
     if st.button("🚀 เริ่มการวิเคราะห์", key="analysis_button", use_container_width=True):
-        if uploaded_files_raw and master_file:
+        if uploaded_files_raw:
             progress_bar = st.progress(0, text="กำลังเริ่มต้นการวิเคราะห์...")
             with st.spinner("กำลังวิเคราะห์ข้อมูล..."):
-                raw_df, output_dfs = process_drug_rate_analysis(uploaded_files_raw, master_file, progress_bar)
+                raw_df, output_dfs = process_drug_rate_analysis(uploaded_files_raw, progress_bar)
 
             if raw_df is not None:
                 progress_bar.progress(95, text="[95%] กำลังสร้างไฟล์ Excel...")
                 output_buffer = io.BytesIO()
                 with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
                     for sheet_name, df_to_save in output_dfs.items():
-                        # ควบคุมการบันทึกชีต Raw ตาม Checkbox
                         if sheet_name != "Summary_Data" and (sheet_name != "Raw" or include_raw):
                             df_to_save.to_excel(writer, sheet_name=sheet_name, index=False)
                     startrow = 0
                     for label, df_summary in output_dfs["Summary_Data"].items():
-                        summary_pivot = df_summary.set_index('Month').T;
+                        summary_pivot = df_summary.set_index('Month').T
                         summary_pivot.index = [label]
-                        summary_pivot.to_excel(writer, sheet_name='Summary', startrow=startrow);
+                        summary_pivot.to_excel(writer, sheet_name='Summary', startrow=startrow)
                         startrow += summary_pivot.shape[0] + 2
 
                 progress_bar.progress(100, text="[100%] การวิเคราะห์เสร็จสมบูรณ์")
 
-                # แสดงปุ่มดาวน์โหลด
                 st.download_button(label="📥 ดาวน์โหลดรายงานวิเคราะห์", data=output_buffer.getvalue(),
                                    file_name="Drugstore_Rate.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
                 st.success("✅ วิเคราะห์สำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
-
         else:
-            st.warning("⚠️ กรุณาอัปโหลดทั้งไฟล์ข้อมูลดิบและไฟล์ Drug Master")
+            st.warning("⚠️ กรุณาอัปโหลดไฟล์ข้อมูลดิบ")
 
 elif "3. รายงานยา EPI" in app_mode:
     st.header("💉 3. รายงานยา EPI")
@@ -605,18 +657,14 @@ elif "3. รายงานยา EPI" in app_mode:
             if final_df is not None:
                 progress_bar.progress(98, text="[98%] กำลังจัดเตรียมการดาวน์โหลด...")
                 output_buffer = io.BytesIO()
-                with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer: final_df.to_excel(writer,
-                                                                                                     sheet_name='Summary',
-                                                                                                     index=False)
+                with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
+                    final_df.to_excel(writer, sheet_name='Summary', index=False)
                 progress_bar.progress(100, text="[100%] การประมวลผลเสร็จสมบูรณ์")
 
-                # แสดงปุ่มดาวน์โหลด
                 st.download_button(label="📥 ดาวน์โหลดไฟล์ EPI usage.xlsx", data=output_buffer.getvalue(),
                                    file_name="EPI usage.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
-                st.success("✅ ประมวลผลสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)");
+                st.success("✅ ประมวลผลสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
         else:
             st.warning("⚠️ กรุณาอัปโหลดไฟล์ข้อมูล")
@@ -628,44 +676,39 @@ elif "4. รายงานยาเสพติดฯ" in app_mode:
         **ขั้นตอนการใช้งาน:**
         1. **อัปโหลดไฟล์ข้อมูลการจ่ายยา:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการจ่ายยา (เลือกหลายไฟล์ได้)
         2. **อัปโหลดไฟล์รายงานรับเข้า:** เลือกไฟล์ Excel (.xlsx) ที่เป็นรายงานการรับเข้า
-        3. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
+        3. **Drug master จะโหลดจาก Google Sheets อัตโนมัติ**
         4. **กดปุ่ม 'ประมวลผลรายงานยาเสพติด'**
     """)
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         xls_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการจ่ายยา (*.xls)", type="xls", accept_multiple_files=True,
                                      key="narcotics_xls_uploader")
     with col2:
         receipt_file = st.file_uploader("2. อัปโหลดไฟล์รายงานรับเข้า (*.xlsx)", type="xlsx",
                                         key="narcotics_receipt_uploader")
-    with col3:
-        master_file_narcotics = st.file_uploader("3. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
-                                                 key="narcotics_master_uploader")
+
     if st.button("🚀 ประมวลผลรายงานยาเสพติด", key="narcotics_button", use_container_width=True):
-        if xls_files and receipt_file and master_file_narcotics:
+        if xls_files and receipt_file:
             progress_bar = st.progress(0, text="กำลังเริ่มต้นการประมวลผล...")
             with st.spinner("กำลังประมวลผล..."):
-                output_data = process_narcotics_report(xls_files, receipt_file, master_file_narcotics, progress_bar)
+                output_data = process_narcotics_report(xls_files, receipt_file, progress_bar)
 
             if output_data:
                 progress_bar.progress(95, text="[95%] กำลังสร้างไฟล์ Excel...")
                 output_buffer = io.BytesIO()
                 with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                    for sheet_name, df in output_data.items(): df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    for sheet_name, df in output_data.items():
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
 
                 progress_bar.progress(100, text="[100%] การประมวลผลเสร็จสมบูรณ์")
 
-                # แสดงปุ่มดาวน์โหลด
                 st.download_button(label="📥 ดาวน์โหลดรายงานยาเสพติด.xlsx", data=output_buffer.getvalue(),
                                    file_name="รายงานการรับเข้าและจ่าย.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
                 st.success("✅ ประมวลผลสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
-
         else:
-            st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 3 ส่วน")
+            st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 2 ส่วน")
 
 elif "5. รายงาน KPI" in app_mode:
     st.header("🎯 5. รายงาน KPI")
@@ -674,44 +717,39 @@ elif "5. รายงาน KPI" in app_mode:
         **ขั้นตอนการใช้งาน:**
         1. **อัปโหลดไฟล์ Rate:** เลือกไฟล์ Excel (.xls) ที่มีข้อมูลการเบิกจ่ายยา (เลือกหลายไฟล์ได้)
         2. **อัปโหลดไฟล์ยอดคงคลัง:** เลือกไฟล์ Excel (.xlsx) ที่มียอดคงคลังสิ้นเดือน
-        3. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูลยา
+        3. **Drug master จะโหลดจาก Google Sheets อัตโนมัติ**
         4. **กดปุ่ม 'ประมวลผล KPI'**
     """)
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         rate_files = st.file_uploader("1. อัปโหลดไฟล์ Rate (*.xls) (หลายไฟล์ได้)", type="xls",
                                       accept_multiple_files=True, key="kpi_rate_uploader")
     with col2:
         inventory_file = st.file_uploader("2. อัปโหลดไฟล์ยอดคงคลังสิ้นเดือน (*.xlsx)", type="xlsx",
                                           key="kpi_inventory_uploader")
-    with col3:
-        master_file_kpi = st.file_uploader("3. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
-                                           key="kpi_master_uploader")
+
     if st.button("🚀 ประมวลผล KPI", key="kpi_button", use_container_width=True):
-        if rate_files and inventory_file and master_file_kpi:
+        if rate_files and inventory_file:
             progress_bar = st.progress(0, text="กำลังเริ่มต้นการคำนวณ KPI...")
             with st.spinner("กำลังคำนวณ KPI..."):
-                output_data = process_kpi_report(rate_files, inventory_file, master_file_kpi, progress_bar)
+                output_data = process_kpi_report(rate_files, inventory_file, progress_bar)
 
             if output_data:
                 progress_bar.progress(95, text="[95%] กำลังสร้างไฟล์ Excel...")
                 output_buffer = io.BytesIO()
                 with pd.ExcelWriter(output_buffer, engine='xlsxwriter') as writer:
-                    for sheet_name, df in output_data.items(): df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    for sheet_name, df in output_data.items():
+                        df.to_excel(writer, sheet_name=sheet_name, index=False)
 
                 progress_bar.progress(100, text="[100%] การคำนวณเสร็จสมบูรณ์")
 
-                # แสดงปุ่มดาวน์โหลด
                 st.download_button(label="📥 ดาวน์โหลดรายงาน KPI.xlsx", data=output_buffer.getvalue(),
                                    file_name="KPI_Report.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
                 st.success("✅ ประมวลผลสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
-
         else:
-            st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 3 ส่วน")
+            st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 2 ส่วน")
 
 elif "6. รวมไฟล์ PDF" in app_mode:
     st.header("📄 6. รวมไฟล์ PDF")
@@ -729,25 +767,22 @@ elif "6. รวมไฟล์ PDF" in app_mode:
         if uploaded_pdfs and output_filename:
             progress_bar = st.progress(0, text="กำลังเริ่มต้นการรวมไฟล์...")
             with st.spinner("กำลังรวมไฟล์ PDF..."):
-                merger = PdfMerger();
+                merger = PdfMerger()
                 num_pdfs = len(uploaded_pdfs)
                 for i, pdf_file in enumerate(uploaded_pdfs):
                     merger.append(pdf_file)
                     progress_bar.progress(int(80 * (i + 1) / num_pdfs),
                                           text=f"[{int(80 * (i + 1) / num_pdfs)}%] กำลังรวมไฟล์ {i + 1} จาก {num_pdfs}...")
 
-                pdf_buffer = io.BytesIO();
-                merger.write(pdf_buffer);
+                pdf_buffer = io.BytesIO()
+                merger.write(pdf_buffer)
                 merger.close()
                 final_filename = f"{output_filename.strip()}.pdf"
 
                 progress_bar.progress(100, text="[100%] การรวมไฟล์เสร็จสมบูรณ์")
 
-                # แสดงปุ่มดาวน์โหลด
                 st.download_button(label=f"📥 ดาวน์โหลดไฟล์ {final_filename}", data=pdf_buffer.getvalue(),
                                    file_name=final_filename, mime="application/pdf")
-
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
                 st.success(f"✅ รวมไฟล์ PDF สำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
         else:
@@ -759,35 +794,27 @@ elif "7. วิเคราะห์ ABC" in app_mode:
     st.info("""
         **ขั้นตอนการใช้งาน:**
         1. **อัปโหลดไฟล์ข้อมูลการใช้งาน:** เลือกไฟล์ Excel (.xls, .xlsx) ที่มีข้อมูลการเบิกจ่ายยา (เลือกหลายไฟล์ได้)
-        2. **อัปโหลดไฟล์ Drug Master:** เลือกไฟล์ Master ที่มีข้อมูล 'Drug group'
+        2. **Drug master จะโหลดจาก Google Sheets อัตโนมัติ**
         3. **กดปุ่ม 'เริ่มการวิเคราะห์ ABC'**
     """)
-    col1, col2 = st.columns(2)
-    with col1:
-        inventory_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการใช้งาน", type=["xlsx", "xls"],
-                                           accept_multiple_files=True, key="abc_inventory_uploader")
-    with col2:
-        master_file_abc = st.file_uploader("2. อัปโหลดไฟล์ Drug Master (*.xlsx)", type="xlsx",
-                                           key="abc_master_uploader")
+    inventory_files = st.file_uploader("1. อัปโหลดไฟล์ข้อมูลการใช้งาน", type=["xlsx", "xls"],
+                                       accept_multiple_files=True, key="abc_inventory_uploader")
+
     if st.button("🚀 เริ่มการวิเคราะห์ ABC", key="abc_button", use_container_width=True):
-        if inventory_files and master_file_abc:
+        if inventory_files:
             progress_bar = st.progress(0, text="กำลังเริ่มต้นการวิเคราะห์ ABC...")
             with st.spinner("กำลังทำการวิเคราะห์ ABC... กระบวนการนี้อาจใช้เวลาสักครู่"):
-                report_bytes = process_abc_analysis(inventory_files, master_file_abc, progress_bar)
+                report_bytes = process_abc_analysis(inventory_files, progress_bar)
 
             if report_bytes:
                 progress_bar.progress(100, text="[100%] การวิเคราะห์ ABC เสร็จสมบูรณ์")
-
-                # แสดงปุ่มดาวน์โหลด
                 st.download_button(
                     label="📥 ดาวน์โหลดรายงาน ABC Analysis",
                     data=report_bytes,
                     file_name="Consolidated_ABC_Report.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
-
-                # แสดงความสำเร็จหลังปุ่มดาวน์โหลด
                 st.success("✅ การวิเคราะห์ ABC เสร็จสมบูรณ์และสร้างรายงานสำเร็จ! (ไฟล์พร้อมดาวน์โหลด)")
                 progress_bar.empty()
         else:
-            st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบทั้ง 2 ส่วน")
+            st.warning("⚠️ กรุณาอัปโหลดไฟล์ให้ครบ")
