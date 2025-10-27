@@ -101,7 +101,7 @@ st.set_page_config(page_title="Drug Label Generator", layout="centered")
 st.title("⚕️ Drug Label Generator")
 
 # [จุดแก้ไข] - ฝัง URL ของ Google Sheet ที่ Publish ไว้ที่นี่
-PUBLISHED_URL = "YOUR_PUBLISHED_GOOGLE_SHEET_CSV_URL_HERE"
+PUBLISHED_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJpIKf_q4h4h1VEIM0tT1MlMvoEw1PXLYMxMv_c3abXFvAIBS0tWHxLL0sDjuuBrPjbrTP7lJH-NQw/pub?gid=0&single=true&output=csv"
 
 # โหลดข้อมูลทันทีเมื่อเปิดแอป
 drug_df = get_data_from_published_url(PUBLISHED_URL)
