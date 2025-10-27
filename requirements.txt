@@ -9,3 +9,4 @@ xlsxwriter
 PyPDF2
 PdfMerger
 PyPDF2
+qrcode[pil]
