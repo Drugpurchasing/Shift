@@ -1,296 +1,150 @@
 import streamlit as st
-import pandas as pd
-import io
-import numpy as np
-from openpyxl.styles import Alignment, Font
-import time
-
-# ==============================================================================
-# Page Configuration (ต้องเป็นคำสั่งแรก)
-# ==============================================================================
-st.set_page_config(
-    page_title="ABC Analysis Tool",
-    page_icon="🔤",
-    layout="wide"
-)
+import qrcode
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
 
 
-# ==============================================================================
-# Functions (No changes needed in the core logic)
-# ==============================================================================
-def process_abc_analysis(inventory_files, master_file_url, progress_bar):
+def create_drug_label(
+        drug_name,
+        formulation,
+        drug_code,
+        expiry_date,
+        batch_no,
+        quantity,
+        unit
+):
     """
-    Performs ABC analysis based on Net Consumption Value across different storage locations.
-
-    Args:
-        inventory_files: List of file objects containing consumption data.
-        master_file_url: URL string for the Drug Master file.
-        progress_bar: Streamlit progress bar object.
-
-    Returns:
-        Bytes of the classified Excel report, or None on error.
+    ฟังก์ชันสำหรับสร้างภาพฉลากยาที่มีทั้ง QR Code และข้อความประกอบ
     """
-    progress_bar.progress(10, text="[10%] กำลังรวมและจัดเตรียมข้อมูลการใช้งาน...")
-    try:
-        # Load and consolidate inventory/usage files
-        all_dfs = [pd.read_excel(fp) for fp in inventory_files]
-        consolidated_df = pd.concat(all_dfs, ignore_index=True)
+    # 1. สร้างข้อมูลสำหรับ QR Code
+    qr_data = f"M|{drug_code}|{batch_no}|{quantity}|{unit}|{quantity}|{unit}"
 
-        # Load Drug Master from URL
-        master_df = pd.read_excel(master_file_url, sheet_name='Drug Master', usecols=['Material', 'Drug group'])
-        master_df['Material'] = master_df['Material'].astype(str)
-
-    except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดในการโหลดไฟล์: {e}")
-        return None
-
-    progress_bar.progress(30, text="[30%] กำลังคำนวณมูลค่าการใช้งานรายเดือน...")
-    df = consolidated_df
-    df['Posting Date'] = pd.to_datetime(df['Posting Date'], errors='coerce')
-    df.dropna(subset=['Posting Date'], inplace=True)
-    df['MonthYear'] = df['Posting Date'].dt.to_period('M')
-    df['Amt.in Loc.Cur.'] = pd.to_numeric(df['Amt.in Loc.Cur.'], errors='coerce').fillna(0)
-    df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0)
-    df['Material'] = df['Material'].astype(str)
-
-    # Aggregate monthly consumption data
-    monthly_data = df.groupby(['Material', 'Material description', 'Storage location', 'MonthYear']).agg(
-        MonthlyNetConsumption=('Amt.in Loc.Cur.', 'sum'),
-        MonthlyNetQuantity=('Quantity', 'sum')
-    ).reset_index()
-
-    # Pivot for monthly quantities (to be included in the final report)
-    monthly_qty_pivot = monthly_data.pivot_table(
-        index=['Material', 'Material description', 'Storage location'],
-        columns='MonthYear',
-        values='MonthlyNetQuantity',
-        fill_value=0
+    # 2. สร้าง QR Code
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=2,
     )
-    monthly_qty_pivot.columns = [f"Qty_{str(col)}" for col in monthly_qty_pivot.columns]
-    monthly_qty_pivot = monthly_qty_pivot.abs()
+    qr.add_data(qr_data)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
 
-    # Aggregate total and average data
-    final_agg = monthly_data.groupby(['Material', 'Material description', 'Storage location']).agg(
-        AvgMonthlyNetQuantity=('MonthlyNetQuantity', 'mean'),
-        TotalNetConsumption=('MonthlyNetConsumption', 'sum')
-    ).reset_index()
+    # 3. เตรียม Font (ใช้ฟอนต์เริ่มต้นของ PIL เพื่อความเข้ากันได้)
+    try:
+        # พยายามใช้ฟอนต์ที่อาจมีอยู่ แต่ถ้าไม่มีให้ใช้ฟอนต์ดีฟอลต์
+        main_font = ImageFont.truetype("arial.ttf", 36)
+        cra_font = ImageFont.truetype("arial.ttf", 30)
+    except IOError:
+        # ฟอนต์ดีฟอลต์จะทำงานได้ในทุกระบบ
+        main_font = ImageFont.load_default()
+        cra_font = ImageFont.load_default()
 
-    final_agg['AvgMonthlyNetQuantity'] = final_agg['AvgMonthlyNetQuantity'].abs()
+    # 4. จัดเรียงและคำนวณขนาดข้อความ
+    text_lines_info = [
+        (drug_name, main_font), (formulation, main_font), (drug_code, main_font),
+        (f"{expiry_date}    {batch_no}", main_font), (f"{quantity} {unit}", main_font),
+    ]
 
-    # Merge monthly pivot back
-    final_agg = pd.merge(final_agg, monthly_qty_pivot, on=['Material', 'Material description', 'Storage location'],
-                         how='left')
-    final_agg['NetConsumptionValue'] = final_agg['TotalNetConsumption'].abs()
-    abc_data_no_class = final_agg[final_agg['NetConsumptionValue'] > 0].copy()
+    max_text_width = 0
+    total_text_height = 0
+    line_spacing = 10
+    for text, font in text_lines_info:
+        try:
+            bbox = font.getbbox(text)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        except AttributeError:
+            text_width, text_height = font.getsize(text)
 
-    if abc_data_no_class.empty:
-        st.warning("ไม่พบข้อมูลการใช้งาน (consumption data) ที่มีมูลค่ามากกว่า 0")
-        return None
+        if text_width > max_text_width:
+            max_text_width = text_width
+        total_text_height += text_height + line_spacing
 
-    # Merge with master data for drug group
-    abc_data_no_class = pd.merge(abc_data_no_class, master_df, on='Material', how='left')
-    abc_data_no_class['Drug group'].fillna('N/A', inplace=True)
+    # 5. สร้างภาพและประกอบชิ้นส่วน
+    padding = 20
+    vertical_text_width = 40
+    qr_text_spacing = 20  # เพิ่มระยะห่าง
 
-    progress_bar.progress(60, text="[60%] กำลังจัดแบ่งกลุ่ม ABC ตามคลัง...")
-    all_locations_classified = []
+    total_width = vertical_text_width + qr_img.width + qr_text_spacing + max_text_width + padding
+    total_height = max(qr_img.height, total_text_height) + (padding * 2)
 
-    # ABC Classification per Storage Location
-    for location in abc_data_no_class['Storage location'].unique():
-        loc_df = abc_data_no_class[abc_data_no_class['Storage location'] == location].copy()
-        total_value_loc = loc_df['NetConsumptionValue'].sum()
-        loc_df = loc_df.sort_values(by='NetConsumptionValue', ascending=False).reset_index(drop=True)
-        loc_df['PercentageValue'] = loc_df['NetConsumptionValue'] / total_value_loc if total_value_loc > 0 else 0
-        loc_df['CumulativePercentage'] = loc_df['PercentageValue'].cumsum()
+    canvas = Image.new('RGB', (total_width, total_height), 'white')
+    draw = ImageDraw.Draw(canvas)
 
-        def assign_abc_class(cum_perc):
-            if cum_perc <= 0.80:
-                return 'A'
-            elif cum_perc <= 0.95:
-                return 'B'
-            else:
-                return 'C'
+    # วาดข้อความ "CRA"
+    cra_text_img = Image.new('RGB', (50, 200), 'white')
+    cra_draw = ImageDraw.Draw(cra_text_img)
+    cra_draw.text((0, 0), "CRA", font=cra_font, fill="black")
+    cra_text_img = cra_text_img.rotate(90, expand=True)
+    y_pos_cra = int((total_height - cra_text_img.height) / 2)
+    canvas.paste(cra_text_img, (5, y_pos_cra))
 
-        loc_df['ABC_Class'] = loc_df['CumulativePercentage'].apply(assign_abc_class)
-        all_locations_classified.append(loc_df)
+    # วาง QR Code
+    x_pos_qr = vertical_text_width
+    y_pos_qr = int((total_height - qr_img.height) / 2)
+    canvas.paste(qr_img, (x_pos_qr, y_pos_qr))
 
-    final_results = pd.concat(all_locations_classified)
+    # วาดข้อความข้อมูลยา
+    x_pos_text = x_pos_qr + qr_img.width + qr_text_spacing
+    current_y = padding
+    for text, font in text_lines_info:
+        draw.text((x_pos_text, current_y), text, font=font, fill="black")
+        try:
+            bbox = font.getbbox(text)
+            current_y += (bbox[3] - bbox[1]) + line_spacing
+        except AttributeError:
+            _, text_height = font.getsize(text)
+            current_y += text_height + line_spacing
 
-    progress_bar.progress(80, text="[80%] กำลังสร้างชีตสรุปและจัดรูปแบบ Excel...")
-    output_buffer = io.BytesIO()
-
-    # Function to apply specific Excel formats and hide columns
-    def apply_formats_and_hide_cols(writer, sheet_name, df):
-        worksheet = writer.sheets[sheet_name]
-        center_align = Alignment(horizontal='center', vertical='center')
-        # Define number formats
-        col_map = {'AvgMonthlyNetQuantity': '#,##0', 'NetConsumptionValue': '#,##0.00', 'PercentageValue': '0.00%',
-                   'CumulativePercentage': '0.00%'}
-        for col in df.columns:
-            if isinstance(col, str) and col.startswith('Qty_'): col_map[col] = '#,##0'
-
-        # Map column names to Excel column letters
-        col_letters = {col_name: chr(65 + i) for i, col_name in enumerate(df.columns)}
-
-        # Apply number formats
-        for col_name, num_format in col_map.items():
-            if col_name in col_letters:
-                col_letter = col_letters[col_name]
-                for row in range(2, worksheet.max_row + 1):
-                    worksheet[f'{col_letter}{row}'].number_format = num_format
-
-        # Apply center alignment for ABC_Class
-        if "ABC_Class" in col_letters:
-            for row in range(2, worksheet.max_row + 1):
-                worksheet[f'{col_letters["ABC_Class"]}{row}'].alignment = center_align
-
-        # Hide monthly quantity columns
-        for col_name in df.columns:
-            if isinstance(col_name, str) and col_name.startswith('Qty_'):
-                worksheet.column_dimensions[col_letters[col_name]].hidden = True
-
-        # Auto-adjust column width for visible columns
-        for col in worksheet.columns:
-            if not worksheet.column_dimensions[col[0].column_letter].hidden:
-                max_length = max(len(str(cell.value)) for cell in col if cell.value)
-                worksheet.column_dimensions[col[0].column_letter].width = max_length + 2
-
-    with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
-        # --- Executive Summary Sheet ---
-        worksheet = writer.book.create_sheet("Executive Summary", 0)
-        writer.sheets['Executive Summary'] = worksheet
-        current_row = 1
-
-        # 1. Summary ABC Count
-        summary_abc_count = final_results.groupby(['Storage location', 'ABC_Class']).size().unstack(fill_value=0)
-        for c in ['A', 'B', 'C']:
-            if c not in summary_abc_count: summary_abc_count[c] = 0
-        summary_abc_count = summary_abc_count[['A', 'B', 'C']]
-        summary_abc_count['Total'] = summary_abc_count.sum(axis=1)
-        summary_abc_count.loc['Total'] = summary_abc_count.sum()
-
-        worksheet.cell(row=current_row, column=1, value='สรุปจำนวนรายการ A, B, C ในแต่ละคลัง').font = Font(bold=True)
-        current_row += 1
-        summary_abc_count.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0)
-        current_row += summary_abc_count.shape[0] + 3
-
-        # 2. Top 3 Drug Groups
-        worksheet.cell(row=current_row, column=1,
-                       value='กลุ่มยา (Drug Group) ที่มีมูลค่าการใช้งานสูงสุด 3 อันดับแรก (แยกตามคลัง)').font = Font(
-            bold=True)
-        current_row += 1
-
-        top_groups = final_results.groupby(['Storage location', 'Drug group'])['NetConsumptionValue'].sum() \
-            .reset_index() \
-            .sort_values('NetConsumptionValue', ascending=False) \
-            .groupby('Storage location').head(3) \
-            .reset_index(drop=True)
-
-        top_groups['NetConsumptionValue'] = top_groups['NetConsumptionValue'].map('{:,.2f}'.format)
-        top_groups.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
-        current_row += top_groups.shape[0] + 3
-
-        # 3. Top 5 Items
-        worksheet.cell(row=current_row, column=1,
-                       value='รายการยาที่มีมูลค่าการใช้งานสูงสุด 5 อันดับแรก (แยกตามคลัง)').font = Font(bold=True)
-        current_row += 1
-
-        top_items = final_results.groupby(['Storage location', 'Material', 'Material description'])[
-            'NetConsumptionValue'].sum() \
-            .reset_index() \
-            .sort_values('NetConsumptionValue', ascending=False) \
-            .groupby('Storage location').head(5) \
-            .reset_index(drop=True)
-
-        top_items['NetConsumptionValue'] = top_items['NetConsumptionValue'].map('{:,.2f}'.format)
-        top_items.to_excel(writer, sheet_name='Executive Summary', startrow=current_row, startcol=0, index=False)
-
-        # --- Detail Sheets per Storage Location ---
-        for location in final_results['Storage location'].unique():
-            sheet_df = final_results[final_results['Storage location'] == location].copy()
-            sheet_name = f'SLoc_{location}'
-            monthly_cols = sorted([col for col in sheet_df.columns if isinstance(col, str) and col.startswith('Qty_')])
-            output_columns = ['Material', 'Material description', 'Storage location'] + monthly_cols + [
-                'AvgMonthlyNetQuantity', 'NetConsumptionValue', 'PercentageValue', 'CumulativePercentage', 'ABC_Class',
-                'Drug group']
-            sheet_df = sheet_df[output_columns]
-            sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
-            apply_formats_and_hide_cols(writer, sheet_name, sheet_df)
-
-    progress_bar.progress(95, text="[95%] กำลังจัดเตรียมการดาวน์โหลด...")
-    return output_buffer.getvalue()
+    return canvas
 
 
-# ==============================================================================
-# STREAMLIT USER INTERFACE (UI) for Standalone ABC Analysis
-# ==============================================================================
+# --- ส่วนของ Streamlit App ---
+st.set_page_config(page_title="Drug Label Generator", layout="centered")
+st.title("⚕️ Drug Label & QR Code Generator")
+st.write("กรอกข้อมูลยาเพื่อสร้างฉลากพร้อม QR Code ตามรูปแบบที่กำหนด")
 
-# --- HEADER ---
-st.title("🔤 ABC Analysis Tool")
-st.markdown("เครื่องมือวิเคราะห์และจัดกลุ่มยาตามมูลค่าการใช้งาน (Net Consumption Value) แบบอัตโนมัติ")
-st.markdown("---")
+with st.form("drug_form"):
+    st.subheader("ข้อมูลยา (Drug Information)")
 
-# --- LAYOUT SETUP (2 COLUMNS) ---
-col1, col2 = st.columns([1, 1.2])
+    # แบ่งหน้าจอเป็น 2 คอลัมน์
+    col1, col2 = st.columns(2)
 
-# --- COLUMN 1: INSTRUCTIONS ---
-with col1:
-    st.subheader("📝 ขั้นตอนการใช้งาน")
-    st.markdown("""
-    1.  **เตรียมข้อมูล:** ดึงข้อมูลการใช้งานยาจาก SAP ตามขั้นตอนด้านล่าง
-    2.  **อัปโหลดไฟล์:** อัปโหลดไฟล์ Excel ที่ได้จาก SAP ในช่องด้านขวา (สามารถอัปโหลดพร้อมกันหลายไฟล์ได้)
-    3.  **เริ่มวิเคราะห์:** กดปุ่ม 'เริ่มการวิเคราะห์ ABC' และรอจนกว่าระบบจะสร้างไฟล์รายงานให้ดาวน์โหลด
-    """)
+    with col1:
+        drug_name = st.text_input("ชื่อยา (Drug Name)", "Avastin (Bevacizumab) 100 mg/4 mL")
+        formulation = st.text_input("รูปแบบยา (Formulation)", "inj.")
+        drug_code = st.text_input("รหัสยา (Drug Code)", "1200000639")
+        expiry_date = st.text_input("วันหมดอายุ (Expiry Date)", "29.02.2028")
 
-    with st.expander("📄 **คลิกเพื่อดูขั้นตอนการดึงข้อมูลจาก SAP**"):
-        st.markdown("""
-            1.  เข้าโปรแกรม SAP ไปที่ Transaction Code **MB51**
-            2.  ที่หน้าจอ Get Variant ให้เลือก Variant ชื่อ **`ABC-ABC ห้องยา`**
-            3.  ใส่รหัสคลัง (Storage Location) ที่ต้องการวิเคราะห์
-            4.  ใส่วันที่ (Posting Date) ที่ต้องการ โดย **ไม่ควรดึงข้อมูลเกินครั้งละ 1 ปี** เพื่อป้องกันข้อมูลมีขนาดใหญ่เกินไป
-            5.  Execute (F8) และ Export ข้อมูลออกมาเป็นไฟล์ Excel เพื่อนำมาใช้อัปโหลดในขั้นต่อไป
-        """)
-    st.info(
-        "💡 **แนะนำ:** หากต้องการวิเคราะห์ข้อมูลจากหลายคลัง (Storage Location) หรือหลายช่วงเวลา สามารถอัปโหลดไฟล์ทั้งหมดพร้อมกันได้ในครั้งเดียว")
+    with col2:
+        batch_no = st.text_input("เลขที่ผลิต (Batch No.)", "H7911B02U1")
+        quantity = st.number_input("จำนวน (Quantity)", min_value=1, value=1, step=1)
+        unit = st.text_input("หน่วย (Unit)", "Vial")
 
-# --- COLUMN 2: UPLOAD & RUN ANALYSIS ---
-with col2:
-    st.subheader("📤 อัปโหลดและเริ่มการวิเคราะห์")
+    submitted = st.form_submit_button("สร้างฉลากยา (Generate Label)")
 
-    with st.container(border=True):
-        inventory_files = st.file_uploader(
-            "อัปโหลดไฟล์ข้อมูลการใช้งาน (Consumption Files)",
-            type=["xlsx", "xls"],
-            accept_multiple_files=True,
-            key="abc_inventory_uploader",
-            help="คุณสามารถลากไฟล์ Excel (.xlsx, .xls) ที่ได้จาก SAP มาวางที่นี่ หรือกด Browse files เพื่อเลือกไฟล์"
-        )
+if submitted:
+    # ตรวจสอบว่ากรอกข้อมูลครบหรือไม่
+    if not all([drug_name, drug_code, expiry_date, batch_no, unit]):
+        st.error("กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน")
+    else:
+        with st.spinner('กำลังสร้างฉลากยา...'):
+            # เรียกฟังก์ชันเพื่อสร้างภาพ
+            final_image = create_drug_label(
+                drug_name, formulation, drug_code, expiry_date, batch_no, quantity, unit
+            )
 
-        # URL for the Drug Master file is now hardcoded
-        master_file_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJpIKf_q4h4h1VEIM0tT1MlMvoEw1PXLYMxMv_c3abXFvAIBS0tWHxLL0sDjuuBrPjbrTP7lJH-NQw/pub?output=xlsx"
+            st.success("สร้างฉลากยาเรียบร้อยแล้ว!")
+            st.image(final_image, caption="ผลลัพธ์ฉลากยา", use_column_width=True)
 
-        if st.button("🚀 เริ่มการวิเคราะห์ ABC", key="abc_button", use_container_width=True, type="primary"):
-            if inventory_files:
-                progress_bar = st.progress(0, text="กำลังเริ่มต้นการวิเคราะห์...")
-                with st.spinner("กำลังทำการวิเคราะห์ ABC... กระบวนการนี้อาจใช้เวลาสักครู่"):
-                    # Pass the URL string directly to the function
-                    report_bytes = process_abc_analysis(inventory_files, master_file_url, progress_bar)
+            # เตรียมไฟล์สำหรับดาวน์โหลด
+            buf = BytesIO()
+            final_image.save(buf, format="PNG")
+            byte_im = buf.getvalue()
 
-                if report_bytes:
-                    progress_bar.progress(100, text="[100%] การวิเคราะห์เสร็จสมบูรณ์!")
-                    st.success("✅ สร้างรายงานสำเร็จ! คลิกปุ่มด้านล่างเพื่อดาวน์โหลด")
-
-                    st.download_button(
-                        label="📥 ดาวน์โหลดรายงาน ABC Analysis (.xlsx)",
-                        data=report_bytes,
-                        file_name="ABC_Report.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                    # The success message is now shown before the button for better flow
-                    progress_bar.empty()
-            else:
-                st.warning("⚠️ กรุณาอัปโหลดไฟล์ข้อมูลการใช้งานอย่างน้อย 1 ไฟล์")
-
-# --- FOOTER ---
-st.markdown("---")
-st.markdown("<p style='text-align: right; color: gray;'>Developed by BG</p>", unsafe_allow_html=True)
+            st.download_button(
+                label="📥 ดาวน์โหลดรูปภาพ (Download Image)",
+                data=byte_im,
+                file_name=f"{drug_code}_{batch_no}.png",
+                mime="image/png"
+            )
