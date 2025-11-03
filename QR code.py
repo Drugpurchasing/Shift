@@ -6,7 +6,6 @@ from io import BytesIO
 import urllib.error
 
 # --- ตารางแปลงหน่วย (Unit Mapping Dictionary) ---
-# [จุดแก้ไข] ฝังตารางแปลงหน่วยไว้ในโค้ด
 UNIT_MAPPING = {
     'Ampule': 'AMP',
     'Bag': 'G01',
@@ -30,7 +29,6 @@ UNIT_MAPPING = {
 
 # --- ฟังก์ชันสร้างฉลากยา (ไม่เปลี่ยนแปลง) ---
 def create_drug_label(drug_name, drug_code, expiry_date, batch_no, quantity, unit_abbr):
-    # ใช้ unit_abbr (หน่วยย่อ) ในการสร้าง QR code และแสดงผล
     qr_data = f"M|{drug_code}|{batch_no}|{quantity}|{unit_abbr}|{quantity}|{unit_abbr}"
     qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=2)
     qr.add_data(qr_data)
@@ -44,7 +42,7 @@ def create_drug_label(drug_name, drug_code, expiry_date, batch_no, quantity, uni
         cra_font = ImageFont.load_default()
     text_lines_info = [
         (drug_name, main_font), (drug_code, main_font),
-        (f"{expiry_date}    {batch_no}", main_font), (f"{quantity} {unit_abbr}", main_font),  # แสดงหน่วยย่อ
+        (f"{expiry_date}     {batch_no}", main_font), (f"{quantity} {unit_abbr}", main_font),
     ]
     max_text_width = 0
     total_text_height = 0
@@ -80,8 +78,8 @@ def create_drug_label(drug_name, drug_code, expiry_date, batch_no, quantity, uni
     return canvas
 
 
-# --- ฟังก์ชันดึงข้อมูลจาก URL ---
-@st.cache_data(ttl=600)  # โหลดข้อมูลใหม่ทุก 10 นาที
+# --- ฟังก์ชันดึงข้อมูลจาก URL (ไม่เปลี่ยนแปลง) ---
+@st.cache_data(ttl=600)
 def get_data_from_published_url(url):
     try:
         df = pd.read_csv(url)
@@ -100,57 +98,76 @@ def get_data_from_published_url(url):
 st.set_page_config(page_title="Drug Label Generator", layout="centered")
 st.title("⚕️ Drug Label Generator")
 
-# [จุดแก้ไข] - ฝัง URL ของ Google Sheet ที่ Publish ไว้ที่นี่
 PUBLISHED_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQJpIKf_q4h4h1VEIM0tT1MlMvoEw1PXLYMxMv_c3abXFvAIBS0tWHxLL0sDjuuBrPjbrTP7lJH-NQw/pub?gid=0&single=true&output=csv"
 
-# โหลดข้อมูลทันทีเมื่อเปิดแอป
 drug_df = get_data_from_published_url(PUBLISHED_URL)
 
 if drug_df is not None:
     st.success("ฐานข้อมูลยาพร้อมใช้งานแล้ว")
 
+    # --- [จุดแก้ไข] สร้างรายการยาสำหรับ Dropdown ---
+    # สร้าง list ของยาในรูปแบบ "รหัสยา - ชื่อยา" เพื่อให้แสดงผลสวยงามและ user-friendly
+    drug_options = [f"{row['Material']} - {row['Material description']}" for index, row in drug_df.iterrows()]
+    # เพิ่มตัวเลือกเริ่มต้น (Placeholder) ไว้ที่ด้านบนสุด
+    drug_options.insert(0, "--- กรุณาเลือกยา ---")
+
     # --- ฟอร์มสำหรับกรอกข้อมูล ---
     with st.form("drug_form"):
         st.subheader("กรอกข้อมูลเพื่อสร้างฉลาก")
-        drug_code_input = st.text_input("รหัสยา (Material Code)")
+
+        # --- [จุดแก้ไข] เปลี่ยนจาก text_input เป็น selectbox (Dropdown with search) ---
+        selected_drug = st.selectbox(
+            label="ค้นหาและเลือกยา (Search and Select Drug)",
+            options=drug_options,
+            index=0  # ให้ตัวเลือกเริ่มต้นเป็น "--- กรุณาเลือกยา ---"
+        )
+        
         batch_no_input = st.text_input("เลขที่ผลิต (Batch No.)")
         expiry_date_input = st.text_input("วันหมดอายุ (Expiry Date, e.g., 29.02.2028)")
         quantity_input = st.number_input("จำนวน (Quantity)", min_value=1, value=1, step=1)
 
         submitted = st.form_submit_button("สร้างฉลากยา")
 
-    if submitted and drug_code_input:
-        drug_info = drug_df[drug_df['Material'] == drug_code_input]
+    if submitted:
+        # --- [จุดแก้ไข] ตรวจสอบว่าผู้ใช้ได้เลือกยาจาก Dropdown แล้ว ---
+        if selected_drug != "--- กรุณาเลือกยา ---":
+            # ดึงรหัสยา (ส่วนแรก) ออกมาจากข้อความที่เลือก
+            drug_code_input = selected_drug.split(' - ')[0].strip()
+            
+            drug_info = drug_df[drug_df['Material'] == drug_code_input]
 
-        if not drug_info.empty:
-            drug_data = drug_info.iloc[0]
+            if not drug_info.empty:
+                drug_data = drug_info.iloc[0]
+                full_unit = drug_data['Sale Unit']
+                unit_abbreviation = UNIT_MAPPING.get(full_unit, full_unit)
 
-            # [จุดแก้ไข] - แปลงหน่วยเต็มเป็นหน่วยย่อ
-            full_unit = drug_data['Sale Unit']
-            unit_abbreviation = UNIT_MAPPING.get(full_unit, full_unit)  # ถ้าไม่พบให้ใช้ชื่อเต็มแทน
+                with st.spinner('กำลังสร้างฉลากยา...'):
+                    final_image = create_drug_label(
+                        drug_name=drug_data['Material description'],
+                        drug_code=drug_code_input,
+                        expiry_date=expiry_date_input,
+                        batch_no=batch_no_input,
+                        quantity=quantity_input,
+                        unit_abbr=unit_abbreviation
+                    )
 
-            with st.spinner('กำลังสร้างฉลากยา...'):
-                final_image = create_drug_label(
-                    drug_name=drug_data['Material description'],
-                    drug_code=drug_code_input,
-                    expiry_date=expiry_date_input,
-                    batch_no=batch_no_input,
-                    quantity=quantity_input,
-                    unit_abbr=unit_abbreviation  # ส่งหน่วยย่อไปใช้งาน
+                st.success("สร้างฉลากยาเรียบร้อย!")
+                st.image(final_image, caption=f"ผลลัพธ์: {drug_data['Material description']}")
+
+                buf = BytesIO()
+                final_image.save(buf, format="PNG")
+                st.download_button(
+                    label="📥 ดาวน์โหลดรูปภาพ",
+                    data=buf.getvalue(),
+                    file_name=f"label_{drug_code_input}_{batch_no_input}.png",
+                    mime="image/png"
                 )
-
-            st.success("สร้างฉลากยาเรียบร้อย!")
-            st.image(final_image, caption=f"ผลลัพธ์: {drug_data['Material description']}")
-
-            buf = BytesIO()
-            final_image.save(buf, format="PNG")
-            st.download_button(
-                label="📥 ดาวน์โหลดรูปภาพ",
-                data=buf.getvalue(),
-                file_name=f"label_{drug_code_input}_{batch_no_input}.png",
-                mime="image/png"
-            )
+            else:
+                # กรณีนี้ไม่น่าจะเกิดขึ้นถ้าเลือกจาก list แต่ใส่ไว้เผื่อ
+                st.error(f"ไม่พบรหัสยา '{drug_code_input}' ในฐานข้อมูล")
         else:
-            st.error(f"ไม่พบรหัสยา '{drug_code_input}' ในฐานข้อมูล")
+            # แจ้งเตือนหากผู้ใช้ยังไม่ได้เลือกยา
+            st.warning("กรุณาเลือกยาจากรายการก่อนกด 'สร้างฉลากยา'")
 else:
     st.error("ไม่สามารถเริ่มต้นโปรแกรมได้ โปรดตรวจสอบ URL ของ Google Sheet ในโค้ด")
+    
