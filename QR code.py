@@ -78,16 +78,20 @@ def create_drug_label(drug_name, drug_code, expiry_date, batch_no, quantity, uni
     return canvas
 
 
-# --- ฟังก์ชันดึงข้อมูลจาก URL (ไม่เปลี่ยนแปลง) ---
+# --- ฟังก์ชันดึงข้อมูลจาก URL ---
 @st.cache_data(ttl=600)
 def get_data_from_published_url(url):
     try:
-        df = pd.read_csv(url)
+        # --- [จุดแก้ไข] ---
+        # ระบุให้คอลัมน์ 'Material' เป็นชนิดข้อมูล string ตั้งแต่ตอนโหลด
+        # เพื่อป้องกันการแปลงเป็นเลขทศนิยมโดยอัตโนมัติ
+        df = pd.read_csv(url, dtype={'Material': str})
+        
         required_columns = ['Material', 'Material description', 'Sale Unit']
         if not all(col in df.columns for col in required_columns):
             st.error(f"Error: ไม่พบคอลัมน์ที่จำเป็น ({', '.join(required_columns)}) ใน Google Sheet")
             return None
-        df['Material'] = df['Material'].astype(str)
+        # ไม่จำเป็นต้องแปลง Material เป็น str อีก เพราะทำไปแล้วตอนโหลด
         return df
     except Exception as e:
         st.error(f"ไม่สามารถโหลดหรืออ่านข้อมูลจาก Google Sheet ได้: {e}")
@@ -105,21 +109,16 @@ drug_df = get_data_from_published_url(PUBLISHED_URL)
 if drug_df is not None:
     st.success("ฐานข้อมูลยาพร้อมใช้งานแล้ว")
 
-    # --- [จุดแก้ไข] สร้างรายการยาสำหรับ Dropdown ---
-    # สร้าง list ของยาในรูปแบบ "รหัสยา - ชื่อยา" เพื่อให้แสดงผลสวยงามและ user-friendly
     drug_options = [f"{row['Material']} - {row['Material description']}" for index, row in drug_df.iterrows()]
-    # เพิ่มตัวเลือกเริ่มต้น (Placeholder) ไว้ที่ด้านบนสุด
     drug_options.insert(0, "--- กรุณาเลือกยา ---")
 
-    # --- ฟอร์มสำหรับกรอกข้อมูล ---
     with st.form("drug_form"):
         st.subheader("กรอกข้อมูลเพื่อสร้างฉลาก")
-
-        # --- [จุดแก้ไข] เปลี่ยนจาก text_input เป็น selectbox (Dropdown with search) ---
+        
         selected_drug = st.selectbox(
             label="ค้นหาและเลือกยา (Search and Select Drug)",
             options=drug_options,
-            index=0  # ให้ตัวเลือกเริ่มต้นเป็น "--- กรุณาเลือกยา ---"
+            index=0
         )
         
         batch_no_input = st.text_input("เลขที่ผลิต (Batch No.)")
@@ -129,9 +128,7 @@ if drug_df is not None:
         submitted = st.form_submit_button("สร้างฉลากยา")
 
     if submitted:
-        # --- [จุดแก้ไข] ตรวจสอบว่าผู้ใช้ได้เลือกยาจาก Dropdown แล้ว ---
         if selected_drug != "--- กรุณาเลือกยา ---":
-            # ดึงรหัสยา (ส่วนแรก) ออกมาจากข้อความที่เลือก
             drug_code_input = selected_drug.split(' - ')[0].strip()
             
             drug_info = drug_df[drug_df['Material'] == drug_code_input]
@@ -163,10 +160,8 @@ if drug_df is not None:
                     mime="image/png"
                 )
             else:
-                # กรณีนี้ไม่น่าจะเกิดขึ้นถ้าเลือกจาก list แต่ใส่ไว้เผื่อ
                 st.error(f"ไม่พบรหัสยา '{drug_code_input}' ในฐานข้อมูล")
         else:
-            # แจ้งเตือนหากผู้ใช้ยังไม่ได้เลือกยา
             st.warning("กรุณาเลือกยาจากรายการก่อนกด 'สร้างฉลากยา'")
 else:
     st.error("ไม่สามารถเริ่มต้นโปรแกรมได้ โปรดตรวจสอบ URL ของ Google Sheet ในโค้ด")
