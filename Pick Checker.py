@@ -4,7 +4,7 @@ import numpy as np
 from io import BytesIO
 
 # --- Main Processing Function (Based on your script) ---
-# อัปเดต: เพิ่ม 'mode' parameter เพื่อควบคุมการประมวลผล
+# อัปเดต: แยก Logic OPD/IPD ให้ชัดเจนขึ้น
 def process_files(rate_files_list, data_files_list, mode):
     """
     ประมวลผลไฟล์ Rate และ Data ตาม Logic เดิมของผู้ใช้
@@ -12,7 +12,6 @@ def process_files(rate_files_list, data_files_list, mode):
     """
     
     # --- 1. ประมวลผลไฟล์ "Rate" (*.xlsx) ---
-    # (ยังคงต้องอ่านทั้งหมด แม้จะทำแค่ OPD หรือ IPD)
     st.write("กำลังอ่านไฟล์ Rate...")
     combined_df = pd.DataFrame()
     for file in rate_files_list:
@@ -20,7 +19,6 @@ def process_files(rate_files_list, data_files_list, mode):
         combined_df = pd.concat([combined_df, df], ignore_index=True)
 
     # --- 2. ประมวลผลไฟล์ "Data" (*.xls) ---
-    # (ยังคงต้องอ่านทั้งหมด เพื่อกรอง)
     st.write("กำลังอ่านไฟล์ข้อมูล *.xls ...")
     dfs = []
     for file in data_files_list:
@@ -70,31 +68,25 @@ def process_files(rate_files_list, data_files_list, mode):
     stacked_df = stacked_df[stacked_df['Store'].isin(valid_store_values)]
     stacked_df = stacked_df[stacked_df['จำนวน'] >= 0]
     
-    # แยก OPD / IPD (Logic เดิม)
-    stacked_IPD = stacked_df.dropna(subset=["เลขที่เอกสาร"])
-    stacked_OPD = stacked_df.dropna(subset=["Clinic"])
+    # --- 4. เตรียม DataFrame ว่างสำหรับผลลัพธ์ ---
+    merged_OPD, merged_IPD = pd.DataFrame(), pd.DataFrame()
+    stacked_OPD, stacked_IPD = pd.DataFrame(), pd.DataFrame()
+    combined_OPD, combined_IPD = pd.DataFrame(), pd.DataFrame()
 
-    st.write("ประมวลผลไฟล์ Rate (OPD/IPD)...")
-    # --- 4. ประมวลผล Combined (Rate) Data (Logic เดิม) ---
-    # (จำเป็นต้องเตรียมข้อมูลทั้ง 2 ส่วนก่อน)
-    combined_OPD = combined_df.loc[:, ["Material Number", "Material description", "Batch Quantity", "Order Number", "VN Number", "Hospital Number"]]
-    combined_IPD = combined_df.loc[:, ["Material Number", "Material description", "Batch Quantity", "Order Number", "Admit Number"]]
-    
-    combined_OPD = combined_OPD.groupby(["Material Number", "Order Number", "VN Number", "Hospital Number"])['Batch Quantity'].sum().reset_index()
-    combined_IPD = combined_IPD.groupby(["Material Number", "Order Number", "Admit Number"])['Batch Quantity'].sum().reset_index()
-    
-    new_column_names_opd = ["Material", "Order Number", "VN / AN", "HN", "จำนวน Pick"]
-    combined_OPD = combined_OPD.rename(columns=dict(zip(combined_OPD.columns, new_column_names_opd)))
-    
-    new_column_names_ipd = ["Material", "เลขที่เอกสาร", "VN / AN", "จำนวน Pick"]
-    combined_IPD = combined_IPD.rename(columns=dict(zip(combined_IPD.columns, new_column_names_ipd)))
-
-    # --- 5. Merge OPD (Logic เดิม - แต่มีเงื่อนไข) ---
-    merged_OPD = pd.DataFrame() # สร้าง DataFrame ว่างไว้ก่อน
-    
+    # --- 5. ประมวลผล OPD (ถ้าเลือก) ---
     if mode in ("OPD และ IPD (ทั้งหมด)", "เฉพาะ OPD"):
-        st.write("กำลัง Merge ข้อมูล OPD...")
+        st.write("กำลังประมวลผล OPD...")
         try:
+            # 5.1 ประมวลผล Rate OPD
+            combined_OPD = combined_df.loc[:, ["Material Number", "Material description", "Batch Quantity", "Order Number", "VN Number", "Hospital Number"]]
+            combined_OPD = combined_OPD.groupby(["Material Number", "Order Number", "VN Number", "Hospital Number"])['Batch Quantity'].sum().reset_index()
+            new_column_names_opd = ["Material", "Order Number", "VN / AN", "HN", "จำนวน Pick"]
+            combined_OPD = combined_OPD.rename(columns=dict(zip(combined_OPD.columns, new_column_names_opd)))
+
+            # 5.2 กรองข้อมูล Order OPD
+            stacked_OPD = stacked_df.dropna(subset=["Clinic"])
+
+            # 5.3 Merge OPD
             stacked_OPD["HN"] = pd.to_numeric(stacked_OPD["HN"], errors='coerce').fillna(0).astype(np.int64)
             combined_OPD["HN"] = pd.to_numeric(combined_OPD["HN"], errors='coerce').fillna(0).astype(np.int64)
             stacked_OPD["VN / AN"] = stacked_OPD["VN / AN"].astype(str)
@@ -111,12 +103,20 @@ def process_files(rate_files_list, data_files_list, mode):
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดขณะประมวลผล OPD: {e}")
 
-    # --- 6. Merge IPD (Logic เดิม - แต่มีเงื่อนไข) ---
-    merged_IPD = pd.DataFrame() # สร้าง DataFrame ว่างไว้ก่อน
-
+    # --- 6. ประมวลผล IPD (ถ้าเลือก) ---
     if mode in ("OPD และ IPD (ทั้งหมด)", "เฉพาะ IPD"):
-        st.write("กำลัง Merge ข้อมูล IPD...")
+        st.write("กำลังประมวลผล IPD...")
         try:
+            # 6.1 ประมวลผล Rate IPD
+            combined_IPD = combined_df.loc[:, ["Material Number", "Material description", "Batch Quantity", "Order Number", "Admit Number"]]
+            combined_IPD = combined_IPD.groupby(["Material Number", "Order Number", "Admit Number"])['Batch Quantity'].sum().reset_index()
+            new_column_names_ipd = ["Material", "เลขที่เอกสาร", "VN / AN", "จำนวน Pick"]
+            combined_IPD = combined_IPD.rename(columns=dict(zip(combined_IPD.columns, new_column_names_ipd)))
+            
+            # 6.2 กรองข้อมูล Order IPD
+            stacked_IPD = stacked_df.dropna(subset=["เลขที่เอกสาร"])
+            
+            # 6.3 Merge IPD
             stacked_IPD["เลขที่เอกสาร"] = stacked_IPD["เลขที่เอกสาร"].astype(str)
             combined_IPD["เลขที่เอกสาร"] = combined_IPD["เลขที่เอกสาร"].astype(str)
             stacked_IPD["VN / AN"] = stacked_IPD["VN / AN"].astype(str)
@@ -134,7 +134,7 @@ def process_files(rate_files_list, data_files_list, mode):
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดขณะประมวลผล IPD: {e}")
 
-    # --- 7. สร้าง Excel Output ใน Memory (แบบมีเงื่อนไข) ---
+    # --- 7. สร้าง Excel Output ใน Memory (ตาม mode ที่เลือก) ---
     st.write("กำลังสร้างไฟล์ Excel...")
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -151,7 +151,7 @@ def process_files(rate_files_list, data_files_list, mode):
     output.seek(0)
     return output, merged_OPD, merged_IPD
 
-# --- Streamlit App UI ---
+# --- Streamlit App UI (เหมือนเดิม) ---
 st.set_page_config(layout="wide")
 st.title("💊 โปรแกรมตรวจสอบรายการค้าง Pick (OPD/IPD)")
 st.markdown("โปรแกรมนี้จะช่วยรวมไฟล์ข้อมูลยาและไฟล์ Rate เพื่อค้นหารายการที่ยังค้าง Pick")
@@ -172,13 +172,13 @@ with col2:
                                   accept_multiple_files=True, 
                                   help="เลือกไฟล์ข้อมูล *.xls ทั้งหมด (แทนการเลือกโฟลเดอร์)")
 
-# --- 🌟 ขั้นตอนที่ 3: เลือกประเภทการประมวลผล (ใหม่) ---
+# --- ขั้นตอนที่ 3: เลือกประเภทการประมวลผล ---
 st.header("ขั้นตอนที่ 3: เลือกประเภทการประมวลผล")
 processing_mode = st.radio(
     "เลือกประเภทที่ต้องการ",
     ("OPD และ IPD (ทั้งหมด)", "เฉพาะ OPD", "เฉพาะ IPD"),
     horizontal=True,
-    label_visibility="collapsed" # ซ่อน Label "เลือกประเภทที่ต้องการ" ซ้ำซ้อน
+    label_visibility="collapsed"
 )
 
 # --- Process Button ---
@@ -202,7 +202,7 @@ if st.button("🚀 เริ่มประมวลผล", use_container_width
                     use_container_width=True
                 )
                 
-                # --- Display Results (อัปเดต: แสดงผลตาม mode ที่เลือก) ---
+                # --- Display Results ---
                 st.header("สรุปผลการค้าง Pick")
                 
                 if processing_mode == "เฉพาะ OPD":
