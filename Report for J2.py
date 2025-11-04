@@ -163,8 +163,8 @@ def process_drug_rate_analysis(data_files, progress_bar):
     merged_df['HN'] = merged_df['HN'].astype(str).str.replace('.0', '', regex=False)
 
     grouped_countHN_df = merged_df.pivot_table(index=['Material', 'Material description'], columns='Month', values='HN', aggfunc=pd.Series.nunique).reset_index()
-    grouped_sumRate_df = merged_df.pivot_table(index=['Material', 'Material description', 'หน่วยย่อย'], columns='Month', values='จำนวน', aggfunc='sum').reset_index()
-    grouped_sumRateSplit_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'หน่วยย่อย'], columns='Month', values='จำนวน', aggfunc='sum').reset_index()
+    grouped_sumRate_df = merged_df.pivot_table(index=['Material', 'Material description', 'Base Unit'], columns='Month', values='จำนวน', aggfunc='sum').reset_index()
+    grouped_sumRateSplit_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'Base Unit'], columns='Month', values='จำนวน', aggfunc='sum').reset_index()
 
     output_dfs = {
         "Rate แยกเดือน": grouped_sumRate_df,
@@ -359,7 +359,7 @@ def process_kpi_report(rate_files, inventory_file, progress_bar):
         return None
 
     merged_df["ราคาทุนรวม"] = merged_df["จำนวน"] * merged_df["ต้นทุน"]
-    grouped_sumRate_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'หน่วยย่อย'],
+    grouped_sumRate_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'Base Unit'],
                                                values=['จำนวน', "ราคาทุนรวม", "ราคารวม"], aggfunc='sum').reset_index()
 
     progress_bar.progress(70, text="[70%] กำลังคำนวณวันสำรองคงคลัง (DOI)...")
