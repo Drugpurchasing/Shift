@@ -81,7 +81,7 @@ def process_j2_report(uploaded_files, progress_bar):
                              1400000118, 1400000124, 1400000126, 1400000130, 1400000165, 1400000166, 1400000167,
                              1400000168, 1400000169, 1400000170, 1400000171, 1400000172, 1400000194, 1400000284,
                              1400000288, 1400000294, 1400000295, 1400000331, 1400000335, 1400000344, 1400000345,
-                             1400000265]
+                             1400000265,1400000353,1400000351]
     merged_df = stacked_df[stacked_df["Material"].isin(valid_material_values)].copy()
     final_cols = ['วันที่จ่ายยา', 'VN / AN', 'HN', 'ชื่อ', 'สิทธิ์', "แพทย์", 'Material', 'รายการยา', 'จำนวน']
     merged_df = merged_df[final_cols]
@@ -213,7 +213,7 @@ def process_epi_usage(uploaded_files, progress_bar):
 
     progress_bar.progress(70, text="[70%] กำลังกรองยา EPI และสรุปยอด...")
     valid_epi_materials = [1400000084, 1400000083, 1400000087, 1400000086, 1400000088, 1400000081, 1400000082,
-                           1400000090, 1400000085, 1400000089]
+                           1400000090, 1400000085, 1400000089,1400000350,1400000325,1400000324,1400000346]
     epi_df = stacked_df[stacked_df["Material"].isin(valid_epi_materials)].copy()
     summary_df = epi_df.groupby(['Material', 'รายการยา'])['จำนวน'].sum().reset_index()
     summary_df.rename(columns={'จำนวน': 'จำนวนรวม'}, inplace=True)
