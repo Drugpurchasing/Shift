@@ -32,7 +32,7 @@ def load_drug_master():
         resp = requests.get(DRUG_MASTER_URL, timeout=20)
         resp.raise_for_status()
         bio = io.BytesIO(resp.content)
-        dfmaster = pd.read_excel(bio, sheet_name="Drug master")
+        dfmaster = pd.read_excel(bio, sheet_name="Drug Master")
         return dfmaster
     except Exception as e:
         st.error(f"ไม่สามารถดาวน์โหลด/อ่าน Drug master จาก Google Sheets ได้: {e}")
