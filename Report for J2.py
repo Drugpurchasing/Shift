@@ -129,7 +129,7 @@ def process_drug_rate_analysis(data_files, progress_bar):
     merged_df['Store'] = merged_df['Store'].astype('object')
     valid_store_values = [2403, 2401, 2408, 2409, 2417, 2402]
     merged_df.loc[~merged_df["Store"].isin(valid_store_values), "Store"] = "อื่นๆ"
-    merged_df["ราคาทุนรวม"] = pd.to_numeric(merged_df["จำนวน"], errors='coerce') * pd.to_numeric(merged_df.get("ต้นทุน", np.nan), errors='coerce')
+    merged_df["ราคาทุนรวม"] = pd.to_numeric(merged_df["จำนวน"], errors='coerce') * pd.to_numeric(merged_df.get("Cost Price", np.nan), errors='coerce')
     merged_df['วันที่จ่ายยา'] = pd.to_datetime(merged_df['วันที่จ่ายยา'], errors='coerce')
     merged_df['Month'] = merged_df['วันที่จ่ายยา'].dt.to_period('M')
     merged_df = merged_df[merged_df['Store'] != "อื่นๆ"]
@@ -358,7 +358,7 @@ def process_kpi_report(rate_files, inventory_file, progress_bar):
         st.error("ไม่พบคอลัมน์ 'ต้นทุน' ในข้อมูล Master")
         return None
 
-    merged_df["ราคาทุนรวม"] = merged_df["จำนวน"] * merged_df["ต้นทุน"]
+    merged_df["ราคาทุนรวม"] = merged_df["จำนวน"] * merged_df["Cost Price"]
     grouped_sumRate_df = merged_df.pivot_table(index=['Material', "Store", 'Material description', 'Base Unit'],
                                                values=['จำนวน', "ราคาทุนรวม", "ราคารวม"], aggfunc='sum').reset_index()
 
