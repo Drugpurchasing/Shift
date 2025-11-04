@@ -4,13 +4,15 @@ import numpy as np
 from io import BytesIO
 
 # --- Main Processing Function (Based on your script) ---
-# This contains the core logic, unchanged except for file I/O
-def process_files(rate_files_list, data_files_list):
+# อัปเดต: เพิ่ม 'mode' parameter เพื่อควบคุมการประมวลผล
+def process_files(rate_files_list, data_files_list, mode):
     """
     ประมวลผลไฟล์ Rate และ Data ตาม Logic เดิมของผู้ใช้
+    mode: "OPD และ IPD (ทั้งหมด)", "เฉพาะ OPD", "เฉพาะ IPD"
     """
     
     # --- 1. ประมวลผลไฟล์ "Rate" (*.xlsx) ---
+    # (ยังคงต้องอ่านทั้งหมด แม้จะทำแค่ OPD หรือ IPD)
     st.write("กำลังอ่านไฟล์ Rate...")
     combined_df = pd.DataFrame()
     for file in rate_files_list:
@@ -18,6 +20,7 @@ def process_files(rate_files_list, data_files_list):
         combined_df = pd.concat([combined_df, df], ignore_index=True)
 
     # --- 2. ประมวลผลไฟล์ "Data" (*.xls) ---
+    # (ยังคงต้องอ่านทั้งหมด เพื่อกรอง)
     st.write("กำลังอ่านไฟล์ข้อมูล *.xls ...")
     dfs = []
     for file in data_files_list:
@@ -25,29 +28,24 @@ def process_files(rate_files_list, data_files_list):
             source_workbook = pd.ExcelFile(file)
             for i, sheet_name in enumerate(source_workbook.sheet_names):
                 df = source_workbook.parse(sheet_name, header=None)
-                
-                # Logic เดิม: ลบ 2 แถวแรกของชีทแรก
                 if i == 0:
                     df = df.iloc[2:]
-                
                 dfs.append(df)
         except Exception as e:
             st.warning(f"ไม่สามารถอ่านไฟล์ {file.name} (ชีท {sheet_name}): {e}")
 
     if not dfs:
         st.error("ไม่พบข้อมูลที่สามารถอ่านได้ในไฟล์ *.xls ที่อัปโหลด")
-        return None, None, None
+        return None, pd.DataFrame(), pd.DataFrame()
 
     stacked_df = pd.concat(dfs, ignore_index=True)
 
     # --- 3. การทำความสะอาดและเตรียมข้อมูล (Logic เดิม) ---
     st.write("กำลังทำความสะอาดข้อมูล...")
     
-    # ตรวจสอบว่ามีคอลัมน์เพียงพอก่อนที่จะดำเนินการ
     if 18 not in stacked_df.columns:
         st.error(f"ข้อมูล *.xls ไม่มีคอลัมน์ที่ 12 หรือ 18 (index base 0)")
-        st.dataframe(stacked_df.head())
-        return None, None, None
+        return None, pd.DataFrame(), pd.DataFrame()
 
     stacked_df = stacked_df.dropna(subset=[stacked_df.columns[12]])
     stacked_df[stacked_df.columns[12]] = pd.to_numeric(stacked_df[stacked_df.columns[12]], errors='coerce')
@@ -60,12 +58,9 @@ def process_files(rate_files_list, data_files_list):
         "ราคาขายR", "ราคารวม", "Store"
     ]
     
-    # ปรับปรุง: ตรวจสอบจำนวนคอลัมน์ก่อนเปลี่ยนชื่อ
     if len(stacked_df.columns) != len(new_column_labels):
         st.error(f"เกิดข้อผิดพลาด: ไฟล์ข้อมูล *.xls มี {len(stacked_df.columns)} คอลัมน์ แต่คาดหวัง {len(new_column_labels)} คอลัมน์")
-        st.info("ตัวอย่างข้อมูลดิบที่อ่านได้ (5 แถวแรก):")
-        st.dataframe(stacked_df.head())
-        return None, None, None
+        return None, pd.DataFrame(), pd.DataFrame()
 
     stacked_df.columns = new_column_labels
     
@@ -81,6 +76,7 @@ def process_files(rate_files_list, data_files_list):
 
     st.write("ประมวลผลไฟล์ Rate (OPD/IPD)...")
     # --- 4. ประมวลผล Combined (Rate) Data (Logic เดิม) ---
+    # (จำเป็นต้องเตรียมข้อมูลทั้ง 2 ส่วนก่อน)
     combined_OPD = combined_df.loc[:, ["Material Number", "Material description", "Batch Quantity", "Order Number", "VN Number", "Hospital Number"]]
     combined_IPD = combined_df.loc[:, ["Material Number", "Material description", "Batch Quantity", "Order Number", "Admit Number"]]
     
@@ -90,55 +86,67 @@ def process_files(rate_files_list, data_files_list):
     new_column_names_opd = ["Material", "Order Number", "VN / AN", "HN", "จำนวน Pick"]
     combined_OPD = combined_OPD.rename(columns=dict(zip(combined_OPD.columns, new_column_names_opd)))
     
-    # --- 5. Merge OPD (Logic เดิม) ---
-    st.write("กำลัง Merge ข้อมูล OPD...")
-    
-    # ปรับปรุง: แปลง key columns ให้เป็น type เดียวกันก่อน merge เพื่อความแม่นยำ
-    stacked_OPD["HN"] = pd.to_numeric(stacked_OPD["HN"], errors='coerce').fillna(0).astype(np.int64)
-    combined_OPD["HN"] = pd.to_numeric(combined_OPD["HN"], errors='coerce').fillna(0).astype(np.int64)
-    stacked_OPD["VN / AN"] = stacked_OPD["VN / AN"].astype(str)
-    combined_OPD["VN / AN"] = combined_OPD["VN / AN"].astype(str)
-    stacked_OPD["Material"] = pd.to_numeric(stacked_OPD["Material"], errors='coerce').fillna(0).astype(np.int64)
-    combined_OPD["Material"] = pd.to_numeric(combined_OPD["Material"], errors='coerce').fillna(0).astype(np.int64)
-
-    merged_OPD = pd.merge(stacked_OPD, combined_OPD, on=["HN", "VN / AN", "Material"], how="left")
-    merged_OPD.fillna(0, inplace=True)
-    merged_OPD['ค้าง PickO'] = merged_OPD['จำนวน'] - merged_OPD['จำนวน Pick']
-    merged_OPD = merged_OPD[merged_OPD['ค้าง PickO'] > 0]
-    merged_OPD['วันที่จ่ายยา'] = pd.to_datetime(merged_OPD['วันที่จ่ายยา']).dt.strftime('%d/%m/%y')
-    merged_OPD = merged_OPD.drop(columns=["เลขที่เอกสาร", "Ward", "Order Number", "จำนวน Pick", "แพทย์", "ชื่อ"])
-
-    # --- 6. Merge IPD (Logic เดิม) ---
-    st.write("กำลัง Merge ข้อมูล IPD...")
     new_column_names_ipd = ["Material", "เลขที่เอกสาร", "VN / AN", "จำนวน Pick"]
     combined_IPD = combined_IPD.rename(columns=dict(zip(combined_IPD.columns, new_column_names_ipd)))
+
+    # --- 5. Merge OPD (Logic เดิม - แต่มีเงื่อนไข) ---
+    merged_OPD = pd.DataFrame() # สร้าง DataFrame ว่างไว้ก่อน
     
-    # ปรับปรุง: แปลง key columns ให้เป็น type เดียวกัน
-    stacked_IPD["เลขที่เอกสาร"] = stacked_IPD["เลขที่เอกสาร"].astype(str)
-    combined_IPD["เลขที่เอกสาร"] = combined_IPD["เลขที่เอกสาร"].astype(str)
-    stacked_IPD["VN / AN"] = stacked_IPD["VN / AN"].astype(str)
-    combined_IPD["VN / AN"] = combined_IPD["VN / AN"].astype(str)
-    stacked_IPD["Material"] = pd.to_numeric(stacked_IPD["Material"], errors='coerce').fillna(0).astype(np.int64)
-    combined_IPD["Material"] = pd.to_numeric(combined_IPD["Material"], errors='coerce').fillna(0).astype(np.int64)
+    if mode in ("OPD และ IPD (ทั้งหมด)", "เฉพาะ OPD"):
+        st.write("กำลัง Merge ข้อมูล OPD...")
+        try:
+            stacked_OPD["HN"] = pd.to_numeric(stacked_OPD["HN"], errors='coerce').fillna(0).astype(np.int64)
+            combined_OPD["HN"] = pd.to_numeric(combined_OPD["HN"], errors='coerce').fillna(0).astype(np.int64)
+            stacked_OPD["VN / AN"] = stacked_OPD["VN / AN"].astype(str)
+            combined_OPD["VN / AN"] = combined_OPD["VN / AN"].astype(str)
+            stacked_OPD["Material"] = pd.to_numeric(stacked_OPD["Material"], errors='coerce').fillna(0).astype(np.int64)
+            combined_OPD["Material"] = pd.to_numeric(combined_OPD["Material"], errors='coerce').fillna(0).astype(np.int64)
 
-    merged_IPD = pd.merge(stacked_IPD, combined_IPD, on=["เลขที่เอกสาร", "VN / AN", "Material"], how="left")
-    merged_IPD.fillna(0, inplace=True)
-    merged_IPD['ค้าง PickI'] = merged_IPD['จำนวน'] - merged_IPD['จำนวน Pick']
-    merged_IPD = merged_IPD[merged_IPD['ค้าง PickI'] > 0]
-    merged_IPD['วันที่จ่ายยา'] = pd.to_datetime(merged_IPD['วันที่จ่ายยา']).dt.strftime('%d/%m/%y')
-    merged_IPD = merged_IPD.drop(columns=["Clinic", "จำนวน Pick", "แพทย์", "ชื่อ"])
-    merged_IPD = merged_IPD[merged_IPD['Material'].between(1200000001, 1400099999, inclusive='both')].reset_index(drop=True)
+            merged_OPD = pd.merge(stacked_OPD, combined_OPD, on=["HN", "VN / AN", "Material"], how="left")
+            merged_OPD.fillna(0, inplace=True)
+            merged_OPD['ค้าง PickO'] = merged_OPD['จำนวน'] - merged_OPD['จำนวน Pick']
+            merged_OPD = merged_OPD[merged_OPD['ค้าง PickO'] > 0]
+            merged_OPD['วันที่จ่ายยา'] = pd.to_datetime(merged_OPD['วันที่จ่ายยา']).dt.strftime('%d/%m/%y')
+            merged_OPD = merged_OPD.drop(columns=["เลขที่เอกสาร", "Ward", "Order Number", "จำนวน Pick", "แพทย์", "ชื่อ"])
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาดขณะประมวลผล OPD: {e}")
 
-    # --- 7. สร้าง Excel Output ใน Memory ---
+    # --- 6. Merge IPD (Logic เดิม - แต่มีเงื่อนไข) ---
+    merged_IPD = pd.DataFrame() # สร้าง DataFrame ว่างไว้ก่อน
+
+    if mode in ("OPD และ IPD (ทั้งหมด)", "เฉพาะ IPD"):
+        st.write("กำลัง Merge ข้อมูล IPD...")
+        try:
+            stacked_IPD["เลขที่เอกสาร"] = stacked_IPD["เลขที่เอกสาร"].astype(str)
+            combined_IPD["เลขที่เอกสาร"] = combined_IPD["เลขที่เอกสาร"].astype(str)
+            stacked_IPD["VN / AN"] = stacked_IPD["VN / AN"].astype(str)
+            combined_IPD["VN / AN"] = combined_IPD["VN / AN"].astype(str)
+            stacked_IPD["Material"] = pd.to_numeric(stacked_IPD["Material"], errors='coerce').fillna(0).astype(np.int64)
+            combined_IPD["Material"] = pd.to_numeric(combined_IPD["Material"], errors='coerce').fillna(0).astype(np.int64)
+
+            merged_IPD = pd.merge(stacked_IPD, combined_IPD, on=["เลขที่เอกสาร", "VN / AN", "Material"], how="left")
+            merged_IPD.fillna(0, inplace=True)
+            merged_IPD['ค้าง PickI'] = merged_IPD['จำนวน'] - merged_IPD['จำนวน Pick']
+            merged_IPD = merged_IPD[merged_IPD['ค้าง PickI'] > 0]
+            merged_IPD['วันที่จ่ายยา'] = pd.to_datetime(merged_IPD['วันที่จ่ายยา']).dt.strftime('%d/%m/%y')
+            merged_IPD = merged_IPD.drop(columns=["Clinic", "จำนวน Pick", "แพทย์", "ชื่อ"])
+            merged_IPD = merged_IPD[merged_IPD['Material'].between(1200000001, 1400099999, inclusive='both')].reset_index(drop=True)
+        except Exception as e:
+            st.error(f"เกิดข้อผิดพลาดขณะประมวลผล IPD: {e}")
+
+    # --- 7. สร้าง Excel Output ใน Memory (แบบมีเงื่อนไข) ---
     st.write("กำลังสร้างไฟล์ Excel...")
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        merged_OPD.to_excel(writer, sheet_name='ค้าง Pick OPD', index=False)
-        merged_IPD.to_excel(writer, sheet_name='ค้าง Pick IPD', index=False)
-        stacked_OPD.to_excel(writer, sheet_name='Order OPD', index=False)
-        stacked_IPD.to_excel(writer, sheet_name='Order IPD', index=False)
-        combined_OPD.to_excel(writer, sheet_name='OPD Pick', index=False)
-        combined_IPD.to_excel(writer, sheet_name='IPD Pick', index=False)
+        if mode in ("OPD และ IPD (ทั้งหมด)", "เฉพาะ OPD"):
+            merged_OPD.to_excel(writer, sheet_name='ค้าง Pick OPD', index=False)
+            stacked_OPD.to_excel(writer, sheet_name='Order OPD', index=False)
+            combined_OPD.to_excel(writer, sheet_name='OPD Pick', index=False)
+        
+        if mode in ("OPD และ IPD (ทั้งหมด)", "เฉพาะ IPD"):
+            merged_IPD.to_excel(writer, sheet_name='ค้าง Pick IPD', index=False)
+            stacked_IPD.to_excel(writer, sheet_name='Order IPD', index=False)
+            combined_IPD.to_excel(writer, sheet_name='IPD Pick', index=False)
     
     output.seek(0)
     return output, merged_OPD, merged_IPD
@@ -164,6 +172,15 @@ with col2:
                                   accept_multiple_files=True, 
                                   help="เลือกไฟล์ข้อมูล *.xls ทั้งหมด (แทนการเลือกโฟลเดอร์)")
 
+# --- 🌟 ขั้นตอนที่ 3: เลือกประเภทการประมวลผล (ใหม่) ---
+st.header("ขั้นตอนที่ 3: เลือกประเภทการประมวลผล")
+processing_mode = st.radio(
+    "เลือกประเภทที่ต้องการ",
+    ("OPD และ IPD (ทั้งหมด)", "เฉพาะ OPD", "เฉพาะ IPD"),
+    horizontal=True,
+    label_visibility="collapsed" # ซ่อน Label "เลือกประเภทที่ต้องการ" ซ้ำซ้อน
+)
+
 # --- Process Button ---
 st.divider()
 if st.button("🚀 เริ่มประมวลผล", use_container_width=True, type="primary"):
@@ -171,7 +188,7 @@ if st.button("🚀 เริ่มประมวลผล", use_container_width
     if rate_files and data_files:
         try:
             with st.spinner("กำลังประมวลผลข้อมูล... กรุณารอสักครู่..."):
-                excel_output, df_opd, df_ipd = process_files(rate_files, data_files)
+                excel_output, df_opd, df_ipd = process_files(rate_files, data_files, processing_mode)
             
             if excel_output:
                 st.success("✅ ประมวลผลสำเร็จ!")
@@ -185,16 +202,24 @@ if st.button("🚀 เริ่มประมวลผล", use_container_width
                     use_container_width=True
                 )
                 
-                # --- Display Results ---
+                # --- Display Results (อัปเดต: แสดงผลตาม mode ที่เลือก) ---
                 st.header("สรุปผลการค้าง Pick")
-                tab_opd, tab_ipd = st.tabs([f"ค้าง Pick OPD ({len(df_opd)} รายการ)", 
-                                            f"ค้าง Pick IPD ({len(df_ipd)} รายการ)"])
                 
-                with tab_opd:
+                if processing_mode == "เฉพาะ OPD":
+                    st.info(f"ค้าง Pick OPD ({len(df_opd)} รายการ)")
                     st.dataframe(df_opd)
-                
-                with tab_ipd:
+                    
+                elif processing_mode == "เฉพาะ IPD":
+                    st.info(f"ค้าง Pick IPD ({len(df_ipd)} รายการ)")
                     st.dataframe(df_ipd)
+                    
+                else: # "OPD และ IPD (ทั้งหมด)"
+                    tab_opd, tab_ipd = st.tabs([f"ค้าง Pick OPD ({len(df_opd)} รายการ)", 
+                                                f"ค้าง Pick IPD ({len(df_ipd)} รายการ)"])
+                    with tab_opd:
+                        st.dataframe(df_opd)
+                    with tab_ipd:
+                        st.dataframe(df_ipd)
 
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดร้ายแรงระหว่างประมวลผล:")
@@ -202,4 +227,3 @@ if st.button("🚀 เริ่มประมวลผล", use_container_width
     
     else:
         st.warning("กรุณาอัปโหลดไฟล์ Rate และไฟล์ข้อมูลให้ครบถ้วน")
-        
