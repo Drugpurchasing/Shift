@@ -75,14 +75,28 @@ class PharmacistScheduler:
                 skills_raw = str(row['Skills']).split(',')
                 skills_clean = [skill.strip() for skill in skills_raw if skill.strip()]
 
+                # <<< MODIFICATION START: Check for 'None' preferences >>>
+                preferences = {}
+                all_prefs_are_none = True
+                for i in range(1, 9):
+                    rank_val = row.get(f'Rank{i}')
+                    # Check if value is None, NaN, or an empty string
+                    if pd.isna(rank_val) or str(rank_val).strip().lower() in ['', 'none', 'nan']:
+                        preferences[f'rank{i}'] = None # Standardize to None
+                    else:
+                        preferences[f'rank{i}'] = str(rank_val).strip()
+                        all_prefs_are_none = False # Found a real preference
+                # <<< MODIFICATION END >>>
+
                 self.pharmacists[name] = {
                     'night_shift_count': 0,
                     'skills': skills_clean,
                     'holidays': [date for date in str(row['Holidays']).split(',') if
                                  date != '1900-01-00' and date.strip() and date != 'nan'],
                     'shift_counts': {},
-                    'preferences': {f'rank{i}': row[f'Rank{i}'] for i in range(1, 9)},
-                    'max_hours': max_hours
+                    'preferences': preferences, # <<< MODIFIED
+                    'max_hours': max_hours,
+                    'has_preferences': not all_prefs_are_none # <<< NEW FLAG
                 }
 
             self._update_progress(20, "กำลังโหลดข้อมูล: ประเภทเวร...")
@@ -374,10 +388,22 @@ class PharmacistScheduler:
         return self.pharmacists[pharmacist]['night_shift_count']
 
     def get_preference_score(self, pharmacist, shift_type):
+        # <<< MODIFICATION START: Handle 'No Preference' >>>
+        pharmacist_info = self.pharmacists[pharmacist]
+
+        # Check the new flag. If they have no preferences, return a neutral score.
+        # 5 is neutral (average of 1-8 is 4.5, 9 is unranked, so 5 is a good mid-point penalty).
+        if not pharmacist_info.get('has_preferences', True):
+            return 5 # Neutral preference score
+        # <<< MODIFICATION END >>>
+
         department = self.get_department_from_shift(shift_type)
         for rank in range(1, 9):
-            if self.pharmacists[pharmacist]['preferences'][f'rank{rank}'] == department:
+            # Use .get() to safely access the rank value, which might be None
+            if pharmacist_info['preferences'].get(f'rank{rank}') == department:
                 return rank
+        
+        # Not found in ranks 1-8, return the "unranked" penalty
         return 9
 
     def has_restricted_sequence_optimized(self, pharmacist, date, shift_type, schedule_dict):
@@ -402,37 +428,47 @@ class PharmacistScheduler:
         return False
 
     # <<< NEW METHOD START >>>
-    def is_another_junior_on_overlapping_shift(self, candidate_pharmacist, date, new_shift_type, schedule_dict):
+    def is_another_junior_in_same_department(self, candidate_pharmacist, date, new_shift_type, schedule_dict):
         """
-        Checks if assigning a junior pharmacist would result in two juniors
-        working on overlapping shifts on the same day.
+        ตรวจสอบว่าการ assign เภสัชกร junior
+        จะทำให้มี junior 2 คนทำงานใน "แผนกเดียวกัน" (ตาม prefix ของเวร)
+        ในวันเดียวกันหรือไม่
         """
-        # This rule only applies if the candidate is a junior.
+        # 1. กฎนี้ใช้เฉพาะเมื่อคนที่กำลังจะ assign เป็น junior
         if 'junior' not in self.pharmacists[candidate_pharmacist]['skills']:
             return False
 
-        # Get the time for the new shift.
-        new_start_time = self.shift_types[new_shift_type]['start_time']
-        new_end_time = self.shift_types[new_shift_type]['end_time']
+        # 2. หาว่าเวรใหม่นี้ อยู่แผนกอะไร (เช่น IPD100, Mixing)
+        new_dept = self.get_department_from_shift(new_shift_type)
 
-        # Check all existing shifts on that day.
+        # ถ้าเวรใหม่ไม่สังกัดแผนก (เช่น Care) ให้ถือว่ากฎนี้ไม่ทำงาน
+        if new_dept is None:
+            return False
+
+        # 3. ตรวจสอบเวรทั้งหมดที่จัดไปแล้วในวันนั้น
         if date in schedule_dict:
             for existing_shift, assigned_pharmacist in schedule_dict[date].items():
-                # Skip unassigned shifts
+                
+                # ข้ามเวรที่ยังว่าง
                 if assigned_pharmacist in ['NO SHIFT', 'UNASSIGNED', 'UNFILLED']:
                     continue
+                
+                # ไม่ต้องเทียบกับตัวเอง (กรณีมีเวร pre-assign หลายอัน)
+                if assigned_pharmacist == candidate_pharmacist:
+                    continue
 
-                # Check if the already assigned person is also a junior
+                # 4. ตรวจสอบว่าคนที่ถูกจัดไปแล้ว เป็น junior หรือไม่
                 if 'junior' in self.pharmacists[assigned_pharmacist]['skills']:
-                    # Now check if their shift overlaps with the new one
-                    existing_start_time = self.shift_types[existing_shift]['start_time']
-                    existing_end_time = self.shift_types[existing_shift]['end_time']
-
-                    if self.check_time_overlap(new_start_time, new_end_time, existing_start_time, existing_end_time):
-                        # Conflict found: A junior is already working an overlapping shift.
+                    
+                    # 5. ถ้าเป็น junior, หาว่าเขาอยู่แผนกอะไร
+                    existing_dept = self.get_department_from_shift(existing_shift)
+                    
+                    # 6. ถ้าแผนกตรงกัน = เจอปัญหา
+                    if existing_dept == new_dept:
+                        # Conflict: มี junior ทำงานในแผนกนี้แล้ว
                         return True
 
-        # No conflicts found.
+        # ไม่พบปัญหา
         return False
 
     # <<< NEW METHOD END >>>
@@ -606,7 +642,7 @@ class PharmacistScheduler:
             if self.has_overlapping_shift_optimized(pharmacist, date, shift_type, schedule_dict): continue
 
             # <<< MODIFICATION: INTEGRATE NEW JUNIOR CHECK >>>
-            if self.is_another_junior_on_overlapping_shift(pharmacist, date, shift_type, schedule_dict): continue
+            if self.is_another_junior_in_same_department(pharmacist, date, shift_type, schedule_dict): continue
 
             if pharmacist in pharmacists_on_night_yesterday: continue
             p_skills = self.pharmacists[pharmacist]['skills']
