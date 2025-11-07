@@ -23,7 +23,7 @@ class PharmacistScheduler:
     W_HOURS = 4
     W_PREFERENCE = 4
     W_WEEKEND_OFF = 6
-    W_JUNIOR_BONUS = 100
+    W_JUNIOR_BONUS = 0
 
     def __init__(self, excel_file_path, logger=print, progress_bar=None):
         self.logger = logger
