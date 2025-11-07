@@ -531,23 +531,24 @@ class PharmacistScheduler:
                                            shuffled_pharmacists=None, iteration_num=1):
         start_date = datetime(year, month, 1)
         end_date = datetime(year + 1, 1, 1) - timedelta(days=1) if month == 12 else datetime(year, month + 1,
-                                                                                             1) - timedelta(days=1)
+                                                                                                1) - timedelta(days=1)
+        
+        # --- 1. Initialization ---
         dates = pd.date_range(start_date, end_date)
         schedule_dict = {date: {shift: 'NO SHIFT' for shift in self.shift_types} for date in dates}
         pharmacist_hours = {p: 0 for p in self.pharmacists}
-        pharmacist_consecutive_days = {p: 0 for p in self.pharmacists}
         pharmacist_weekend_work_count = {p: 0 for p in self.pharmacists}
 
-        if shuffled_shifts is None:
-            shuffled_shifts = list(self.shift_types.keys())
-            random.shuffle(shuffled_shifts)
         if shuffled_pharmacists is None:
             shuffled_pharmacists = list(self.pharmacists.keys())
             random.shuffle(shuffled_pharmacists)
+        
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['night_shift_count'] = 0
             self.pharmacists[pharmacist]['mixing_shift_count'] = 0
             self.pharmacists[pharmacist]['category_counts'] = {'Mixing': 0, 'Night': 0}
+
+        # --- 2. Handle Pre-assignments ---
         for pharmacist, assignments in self.pre_assignments.items():
             if pharmacist not in self.pharmacists: continue
             for date_str, shift_types in assignments.items():
@@ -558,63 +559,91 @@ class PharmacistScheduler:
                         schedule_dict[date][shift_type] = pharmacist
                         self._update_shift_counts(pharmacist, shift_type)
                         pharmacist_hours[pharmacist] += self.shift_types[shift_type]['hours']
-        all_dates = list(pd.date_range(start_date, end_date))
-        problem_dates_sorted = sorted([d for d in all_dates if d in self.problem_days])
-        other_dates_sorted = sorted([d for d in all_dates if d not in self.problem_days])
-        processing_order_dates = problem_dates_sorted + other_dates_sorted
-        unfilled_info = {'problem_days': [], 'other_days': []}
-        night_shifts_ordered = [s for s in shuffled_shifts if self.is_night_shift(s)]
-        mixing_shifts_ordered = [s for s in shuffled_shifts if s.startswith('C8') and not self.is_night_shift(s)]
-        care_shifts_ordered = [s for s in shuffled_shifts if
-                               s.startswith('Care') and not self.is_night_shift(s) and not s.startswith('C8')]
-        other_shifts_ordered = [s for s in shuffled_shifts if
-                                not self.is_night_shift(s) and not s.startswith('C8') and not s.startswith('Care')]
-        standard_shift_order = night_shifts_ordered + mixing_shifts_ordered + care_shifts_ordered + other_shifts_ordered
-        problem_day_shift_order = mixing_shifts_ordered + care_shifts_ordered + night_shifts_ordered + other_shifts_ordered
-        total_dates = len(processing_order_dates)
-        for i, date in enumerate(processing_order_dates):
-            if progress_bar:
-                progress_text = f"รอบที่ {iteration_num}: กำลังจัดเวรวันที่ {date.strftime('%d/%m')}"
-                progress_bar.progress((i + 1) / total_dates, text=progress_text)
-            pharmacists_working_yesterday = set()
-            previous_date = date - timedelta(days=1)
-            if previous_date in schedule_dict:
-                pharmacists_working_yesterday = {p for p in schedule_dict[previous_date].values() if
-                                                 p in self.pharmacists}
-            for p_name in self.pharmacists:
-                if p_name in pharmacists_working_yesterday:
-                    pharmacist_consecutive_days[p_name] += 1
-                else:
-                    pharmacist_consecutive_days[p_name] = 0
-            is_day_before_problem_day = (date + timedelta(days=1)) in self.problem_days
-            shifts_to_process = problem_day_shift_order if date in self.problem_days else standard_shift_order
-            for shift_type in shifts_to_process:
-                if schedule_dict[date][shift_type] not in ['NO SHIFT', 'UNASSIGNED',
-                                                           'UNFILLED'] or not self.is_shift_available_on_date(
-                    shift_type, date):
-                    continue
-                available = self._get_available_pharmacists_optimized(shuffled_pharmacists, date, shift_type,
-                                                                    schedule_dict, pharmacist_hours,
-                                                                    pharmacist_consecutive_days,
-                                                                    pharmacist_weekend_work_count)
-                
-                if available:
-                    chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
-                    pharmacist_to_assign = chosen['name']
-                    schedule_dict[date][shift_type] = pharmacist_to_assign
-                    self._update_shift_counts(pharmacist_to_assign, shift_type)
-                    pharmacist_hours[pharmacist_to_assign] += self.shift_types[shift_type]['hours']
-                    if date.weekday() >= 5: # 5 = Saturday, 6 = Sunday
-                        pharmacist_weekend_work_count[pharmacist_to_assign] += 1
-                else:
-                    schedule_dict[date][shift_type] = 'UNFILLED'
-                    if date in self.problem_days:
-                        unfilled_info['problem_days'].append((date, shift_type))
+                        if date.weekday() >= 5:
+                            pharmacist_weekend_work_count[pharmacist] += 1
+
+        # --- 3. Create Slot Lists (Priority vs Random) ---
+        priority_slots = []
+        random_slots = []
+        all_shifts = list(self.shift_types.keys()) # Use a consistent order
+        
+        for date in dates:
+            is_problem_day = date in self.problem_days
+            for shift_type in all_shifts:
+                # Check if slot needs filling (not pre-assigned, is available on date)
+                if schedule_dict[date][shift_type] == 'NO SHIFT' and self.is_shift_available_on_date(shift_type, date):
+                    slot = (date, shift_type)
+                    if is_problem_day or self.is_night_shift(shift_type):
+                        priority_slots.append(slot)
                     else:
-                        unfilled_info['other_days'].append((date, shift_type))
-                        final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
-                        final_schedule.fillna('NO SHIFT', inplace=True)
-                        return final_schedule, unfilled_info
+                        random_slots.append(slot)
+
+        # --- 4. Sort Priority Slots ---
+        def get_slot_priority(slot):
+            _date, _shift_type = slot
+            _is_problem = _date in self.problem_days
+            _is_night = self.is_night_shift(_shift_type)
+            _is_mixing = _shift_type.startswith('C8')
+            _is_care = _shift_type.startswith('Care')
+
+            if _is_problem:
+                if _is_mixing: return 1
+                if _is_care: return 2
+                if _is_night: return 3
+                return 4 # Other problem day shifts
+            else: # Not problem day
+                if _is_night: return 5 # Normal day night shifts
+                return 6 # Should not happen
+
+        sorted_priority_slots = sorted(priority_slots, key=get_slot_priority)
+
+        # --- 5. Shuffle Random Slots ---
+        random.shuffle(random_slots)
+
+        # --- 6. Combine and Process All Slots ---
+        processing_list = sorted_priority_slots + random_slots
+        unfilled_info = {'problem_days': [], 'other_days': []}
+        total_slots = len(processing_list)
+
+        for i, (date, shift_type) in enumerate(processing_list):
+            
+            if progress_bar:
+                progress_text = f"รอบที่ {iteration_num}: กำลังจัดเวร {i+1}/{total_slots}"
+                progress_bar.progress((i + 1) / total_slots, text=progress_text)
+            
+            # (Consecutive days dict logic is removed)
+
+            is_day_before_problem_day = (date + timedelta(days=1)) in self.problem_days
+            
+            available = self._get_available_pharmacists_optimized(shuffled_pharmacists, date, shift_type,
+                                                                  schedule_dict, pharmacist_hours,
+                                                                  pharmacist_weekend_work_count) # <-- Modified call
+            
+            if available:
+                chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
+                pharmacist_to_assign = chosen['name']
+                schedule_dict[date][shift_type] = pharmacist_to_assign
+                self._update_shift_counts(pharmacist_to_assign, shift_type)
+                pharmacist_hours[pharmacist_to_assign] += self.shift_types[shift_type]['hours']
+                
+                if date.weekday() >= 5: # 5 = Saturday, 6 = Sunday
+                    pharmacist_weekend_work_count[pharmacist_to_assign] += 1
+            else:
+                schedule_dict[date][shift_type] = 'UNFILLED'
+                is_priority_slot = (date in self.problem_days or self.is_night_shift(shift_type))
+                
+                if date in self.problem_days:
+                    unfilled_info['problem_days'].append((date, shift_type))
+                else:
+                    unfilled_info['other_days'].append((date, shift_type))
+                
+                # Fail-fast: If a *normal* (non-priority) shift fails, abort this iteration
+                if not is_priority_slot:
+                    final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
+                    final_schedule.fillna('NO SHIFT', inplace=True)
+                    return final_schedule, unfilled_info
+
+        # --- 7. Finalize Schedule ---
         final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
         final_schedule = final_schedule.reindex(columns=list(self.shift_types.keys()), fill_value='NO SHIFT')
         final_schedule.fillna('NO SHIFT', inplace=True)
@@ -628,29 +657,44 @@ class PharmacistScheduler:
         category = self._get_shift_category(shift_type)
         if category and category in self.pharmacists[pharmacist]['category_counts']:
             self.pharmacists[pharmacist]['category_counts'][category] += 1
+    
+    def _count_consecutive_shifts_dict(self, pharmacist, date, schedule_dict, max_days=6):
+        """นับวันทำงานติดต่อกันโดยตรงจาก schedule_dict"""
+        count = 0
+        current_date = date - timedelta(days=1)
+        for _ in range(max_days):
+            if current_date in schedule_dict and pharmacist in schedule_dict[current_date].values():
+                count += 1
+                current_date -= timedelta(days=1)
+            else:
+                # หยุดนับเมื่อเจอวันที่ไม่ได้ทำงาน หรือหลุดช่วงวันที่ใน dict
+                break
+        return count
 
     def _get_available_pharmacists_optimized(self, pharmacists, date, shift_type, schedule_dict, current_hours_dict,
-                                             consecutive_days_dict, pharmacist_weekend_work_count):
+                                             pharmacist_weekend_work_count): # <-- Removed consecutive_days_dict
         available_pharmacists = []
         pharmacists_on_night_yesterday = set()
         previous_date = date - timedelta(days=1)
         if previous_date in schedule_dict:
             pharmacists_on_night_yesterday = {p for s, p in schedule_dict[previous_date].items() if
                                               p in self.pharmacists and self.is_night_shift(s)}
+
         for pharmacist in pharmacists:
             if date.strftime('%Y-%m-%d') in self.pharmacists[pharmacist]['holidays']: continue
             if self.has_overlapping_shift_optimized(pharmacist, date, shift_type, schedule_dict): continue
-
-            # <<< MODIFICATION: INTEGRATE NEW JUNIOR CHECK >>>
             if self.is_another_junior_in_same_department(pharmacist, date, shift_type, schedule_dict): continue
-
             if pharmacist in pharmacists_on_night_yesterday: continue
+            
             p_skills = self.pharmacists[pharmacist]['skills']
             s_req_skills = self.shift_types[shift_type]['required_skills']
             if not all(skill.strip() in p_skills for skill in s_req_skills if skill.strip()): continue
+            
             projected_hours = current_hours_dict[pharmacist] + self.shift_types[shift_type]['hours']
             if projected_hours > self.pharmacists[pharmacist].get('max_hours', 250): continue
+            
             if self.has_restricted_sequence_optimized(pharmacist, date, shift_type, schedule_dict): continue
+            
             category = self._get_shift_category(shift_type)
             if category:
                 limit = self.shift_limits.get(pharmacist, {}).get(category)
@@ -658,25 +702,32 @@ class PharmacistScheduler:
                     current_count = self.pharmacists[pharmacist]['category_counts'][category]
                     if current_count >= limit:
                         continue
+                        
             if self.is_night_shift(shift_type):
                 if self.has_nearby_night_shift_optimized(pharmacist, date, schedule_dict): continue
                 next_date = date + timedelta(days=1)
                 if pharmacist in self.pre_assignments and next_date.strftime('%Y-%m-%d') in self.pre_assignments[
                     pharmacist]: continue
+                    
             if shift_type.startswith('C8'):
                 if not self.check_mixing_expert_ratio_optimized(schedule_dict, date, shift_type, pharmacist):
                     continue
+
+            # <<< MODIFICATION: Calculate consecutive days live >>>
+            consecutive_days = self._count_consecutive_shifts_dict(pharmacist, date, schedule_dict)
+            
             is_junior = 'junior' in self.pharmacists[pharmacist]['skills']
             original_preference = self.get_preference_score(pharmacist, shift_type)
             multiplier = self.preference_multipliers.get(pharmacist, 1.0)
+            
             pharmacist_data = {'name': pharmacist, 'preference_score': original_preference * multiplier,
-                               'consecutive_days': consecutive_days_dict[pharmacist],
+                               'consecutive_days': consecutive_days, # <<< Use live value
                                'night_count': self.pharmacists[pharmacist]['night_shift_count'],
                                'mixing_count': self.pharmacists[pharmacist]['mixing_shift_count'],
-                               'current_hours': current_hours_dict[pharmacist], 
+                               'current_hours': current_hours_dict[pharmacist],
                                'weekend_work_count': pharmacist_weekend_work_count[pharmacist],
                                'is_junior': is_junior
-                               }
+                              }
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
 
