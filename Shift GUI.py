@@ -308,17 +308,37 @@ class PharmacistScheduler:
     def is_shift_available_on_date(self, shift_type, date):
         shift_info = self.shift_types[shift_type]
         is_holiday_date = self.is_holiday(date)
-        is_saturday = date.weekday() == 5
-        is_sunday = date.weekday() == 6
-        if shift_info['shift_type'] == 'weekday':
+        
+        # <<< MODIFICATION START >>>
+        weekday = date.weekday() # Monday is 0, Sunday is 6
+        is_friday = (weekday == 4)
+        is_saturday = (weekday == 5)
+        is_sunday = (weekday == 6)
+
+        shift_category = shift_info['shift_type']
+
+        if shift_category == 'weekday':
+            # Mon-Fri (0-4), excluding holidays
             return not (is_holiday_date or is_saturday or is_sunday)
-        elif shift_info['shift_type'] == 'saturday':
+            
+        elif shift_category == 'วันจันทร์-พฤหัส':
+            # Mon-Thu (0-3), excluding holidays, Fri, Sat, Sun
+            return not (is_holiday_date or is_friday or is_saturday or is_sunday)
+            
+        elif shift_category == 'saturday':
+            # Only Saturday, excluding holidays
             return is_saturday and not is_holiday_date
-        elif shift_info['shift_type'] == 'holiday':
+            
+        elif shift_category == 'holiday':
+            # Public holidays, Saturdays, or Sundays
             return is_holiday_date or is_saturday or is_sunday
-        elif shift_info['shift_type'] == 'night':
+            
+        elif shift_category == 'night':
+            # Any day
             return True
-        return False
+            
+        return False # Default for unknown types
+        # <<< MODIFICATION END >>>
 
     def get_department_from_shift(self, shift_type):
         if shift_type.startswith('I100'):
@@ -1530,12 +1550,35 @@ class AssistantScheduler:
         return shift_type in self.night_shifts
 
     def is_shift_available_on_date(self, shift_type, date):
-        info, h, sa, su = self.shift_types[shift_type], self.is_holiday(date), date.weekday() == 5, date.weekday() == 6
+        # <<< MODIFICATION START >>>
+        info = self.shift_types[shift_type]
+        h = self.is_holiday(date)
+        weekday = date.weekday() # Monday is 0, Sunday is 6
+        fr = (weekday == 4)
+        sa = (weekday == 5)
+        su = (weekday == 6)
+        
         stype = info['shift_type']
-        if stype == 'weekday': return not (h or sa or su)
-        if stype == 'saturday': return sa and not h
-        if stype == 'holiday': return h or sa or su
+        
+        if stype == 'weekday': 
+            # Mon-Fri (0-4), excluding holidays
+            return not (h or sa or su)
+            
+        elif stype == 'วันจันทร์-พฤหัส':
+            # Mon-Thu (0-3), excluding holidays, Fri, Sat, Sun
+            return not (h or fr or sa or su)
+            
+        elif stype == 'saturday': 
+            # Only Saturday, excluding holidays
+            return sa and not h
+            
+        elif stype == 'holiday': 
+            # Public holidays, Saturdays, or Sundays
+            return h or sa or su
+            
+        # Default for other types (like 'night' or unlisted) is True
         return True
+        # <<< MODIFICATION END >>>
 
     def count_consecutive_shifts(self, assistant, date, schedule, max_days=2):
         c = 0
