@@ -46,7 +46,7 @@ class PharmacistScheduler:
             'I100-10', 'I100-12N', 'I400-12N', 'I400-10', 'O400ER-12N', 'O400ER-10'
         }
         self.holidays = {
-            'specific_dates': ['2025-10-13', '2025-10-23']
+            'specific_dates': ['2025-12-10', '2025-12-31']
         }
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['shift_counts'] = {
