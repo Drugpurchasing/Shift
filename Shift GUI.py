@@ -851,7 +851,7 @@ class PharmacistScheduler:
                                "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)",
                                "ภญ.ดวงดาว (ปลา)", "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)",
                                "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)",
-                               "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)"]
+                               "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)","PharmA","PharmB","PharmC","PharmD","PharmE","PharmF","PharmG","PharmH","PharmI"]
         ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
         sorted_dates = sorted(schedule.index)
         for col, date in enumerate(sorted_dates, 2):
@@ -957,7 +957,7 @@ class PharmacistScheduler:
                                "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)",
                                "ภญ.ดวงดาว (ปลา)", "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)",
                                "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)",
-                               "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)"]
+                               "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)","PharmA","PharmB","PharmC","PharmD","PharmE","PharmF","PharmG","PharmH","PharmI"]
         ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
         sorted_dates = sorted(schedule.index)
         for col, date in enumerate(sorted_dates, 2):
