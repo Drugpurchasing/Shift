@@ -22,6 +22,7 @@ class PharmacistScheduler:
     W_CONSECUTIVE = 8
     W_HOURS = 4
     W_PREFERENCE = 4
+    W_WEEKEND_OFF = 6
 
     def __init__(self, excel_file_path, logger=print, progress_bar=None):
         self.logger = logger
@@ -498,6 +499,8 @@ class PharmacistScheduler:
         schedule_dict = {date: {shift: 'NO SHIFT' for shift in self.shift_types} for date in dates}
         pharmacist_hours = {p: 0 for p in self.pharmacists}
         pharmacist_consecutive_days = {p: 0 for p in self.pharmacists}
+        pharmacist_weekend_work_count = {p: 0 for p in self.pharmacists}
+
         if shuffled_shifts is None:
             shuffled_shifts = list(self.shift_types.keys())
             random.shuffle(shuffled_shifts)
@@ -554,14 +557,18 @@ class PharmacistScheduler:
                     shift_type, date):
                     continue
                 available = self._get_available_pharmacists_optimized(shuffled_pharmacists, date, shift_type,
-                                                                      schedule_dict, pharmacist_hours,
-                                                                      pharmacist_consecutive_days)
+                                                                    schedule_dict, pharmacist_hours,
+                                                                    pharmacist_consecutive_days,
+                                                                    pharmacist_weekend_work_count)
+                
                 if available:
                     chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
                     pharmacist_to_assign = chosen['name']
                     schedule_dict[date][shift_type] = pharmacist_to_assign
                     self._update_shift_counts(pharmacist_to_assign, shift_type)
                     pharmacist_hours[pharmacist_to_assign] += self.shift_types[shift_type]['hours']
+                    if date.weekday() >= 5: # 5 = Saturday, 6 = Sunday
+                        pharmacist_weekend_work_count[pharmacist_to_assign] += 1
                 else:
                     schedule_dict[date][shift_type] = 'UNFILLED'
                     if date in self.problem_days:
@@ -586,7 +593,7 @@ class PharmacistScheduler:
             self.pharmacists[pharmacist]['category_counts'][category] += 1
 
     def _get_available_pharmacists_optimized(self, pharmacists, date, shift_type, schedule_dict, current_hours_dict,
-                                             consecutive_days_dict):
+                                             consecutive_days_dict, pharmacist_weekend_work_count):
         available_pharmacists = []
         pharmacists_on_night_yesterday = set()
         previous_date = date - timedelta(days=1)
@@ -628,17 +635,27 @@ class PharmacistScheduler:
                                'consecutive_days': consecutive_days_dict[pharmacist],
                                'night_count': self.pharmacists[pharmacist]['night_shift_count'],
                                'mixing_count': self.pharmacists[pharmacist]['mixing_shift_count'],
-                               'current_hours': current_hours_dict[pharmacist], }
+                               'current_hours': current_hours_dict[pharmacist], 
+                               'weekend_work_count': pharmacist_weekend_work_count[pharmacist]
+                               }
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
 
-    def _calculate_suitability_score(self, pharmacist_data):
+    def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift):
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
         hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
         preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
+
+        weekend_penalty = 0
+        if is_weekend_shift:
+            weekend_penalty = self.W_WEEKEND_OFF * (pharmacist_data['weekend_work_count'] ** 2)
+
         return consecutive_penalty + hours_penalty + preference_penalty
 
     def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
+
+        is_weekend_shift = date.weekday() >= 5
+
         if self.is_night_shift(shift_type) and is_day_before_problem_day:
             problem_day = date + timedelta(days=1)
             problem_day_str = problem_day.strftime('%Y-%m-%d')
@@ -649,13 +666,13 @@ class PharmacistScheduler:
                     candidates_off_tomorrow.append(p_data)
             if candidates_off_tomorrow:
                 return min(candidates_off_tomorrow,
-                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
+                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x, is_weekend_shift))) # <<< MODIFIED CALL
         if self.is_night_shift(shift_type):
-            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x)))
+            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x, is_weekend_shift))) # <<< MODIFIED CALL
         elif shift_type.startswith('C8'):
-            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x)))
+            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x, is_weekend_shift))) # <<< MODIFIED CALL
         else:
-            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x))
+            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x, is_weekend_shift)) # <<< MODIFIED CALL
 
     def calculate_preference_penalty(self, pharmacist, schedule):
         penalty = 0
@@ -1283,7 +1300,13 @@ class AssistantScheduler:
             self.assistants[name]['shift_counts'] = {st: 0 for st in self.shift_types.keys()}
             self.assistants[name]['specific_shift_counts'] = self.assistants[name][
                 'initial_specific_shift_counts'].copy()
+            # <<< NEW: Reset weekend work count >>>
+            self.assistants[name]['weekend_work_count'] = 0
+
         for date in schedule.index:
+
+            is_weekend = date.weekday() >= 5 # 5 = Sat, 6 = Sun
+
             for shift_type, assistant_name in schedule.loc[date].items():
                 if assistant_name in self.assistants:
                     self.assistants[assistant_name]['shift_counts'][shift_type] += 1
@@ -1295,6 +1318,8 @@ class AssistantScheduler:
                     department = self.get_department_from_shift(shift_type)
                     if department:
                         self.assistants[assistant_name]['department_counts'][department] += 1
+                    if is_weekend:
+                        self.assistants[assistant_name]['weekend_work_count'] += 1
 
     def _get_available_assistants(self, assistants, date, shift_type, schedule):
         available = []
@@ -1308,7 +1333,9 @@ class AssistantScheduler:
                         'night_count': self.assistants[assistant]['night_shift_count'],
                         'current_hours': self.assistants[assistant]['total_hours'],
                         'department_counts': self.assistants[assistant]['department_counts'],
-                        'specific_shift_counts': self.assistants[assistant]['specific_shift_counts']
+                        'specific_shift_counts': self.assistants[assistant]['specific_shift_counts'],
+                        # <<< NEW: Add current weekend work count to data packet >>>
+                        'weekend_work_count': self.assistants[assistant]['weekend_work_count']
                     })
         return available
 
@@ -1317,9 +1344,19 @@ class AssistantScheduler:
         min_hours_among_all = min(all_current_hours) if all_current_hours else 0
 
         shift_hours = self.shift_types[shift_type]['hours']
+
+        is_weekend_shift = date.weekday() >= 5
+        W_WEEKEND_PENALTY_FACTOR = 10  # Penalty weight for sorting
+
         for a_data in available_assistants:
             projected_hours = a_data['current_hours'] + shift_hours
             a_data['violates_16h_rule'] = (projected_hours - min_hours_among_all) > 16
+
+            weekend_penalty = 0
+            if is_weekend_shift:
+                # Same logic: penalty scales quadratically with weekend days already worked
+                weekend_penalty = (a_data['weekend_work_count'] ** 2) * W_WEEKEND_PENALTY_FACTOR
+            a_data['weekend_penalty'] = weekend_penalty
 
         is_day_before_problem_day = (pd.Timestamp(date.date()) + timedelta(days=1)) in problematic_dates
         if self.is_night_shift(shift_type) and is_day_before_problem_day:
@@ -1330,20 +1367,20 @@ class AssistantScheduler:
                 self.logger(
                     f"\nINFO: จัดเวรดึกวันที่ {date.strftime('%Y-%m-%d')} ให้กับคนที่หยุดในวันถัดไป ({problem_day_str}) ก่อน")
                 return min(candidates_off_tomorrow, key=lambda x: (
-                x['violates_16h_rule'], x['night_count'], x['current_hours'], x['consecutive_days']))
+                x['violates_16h_rule'], x['weekend_penalty'], x['night_count'], x['current_hours'], x['consecutive_days']))
 
         if self.is_night_shift(shift_type):
             return min(available_assistants, key=lambda x: (
-            x['violates_16h_rule'], x['night_count'], x['current_hours'], x['consecutive_days']))
+            x['violates_16h_rule'],x['weekend_penalty'], x['night_count'], x['current_hours'], x['consecutive_days']))
 
         department = self.get_department_from_shift(shift_type)
         if department:
             return min(available_assistants, key=lambda x: (
-            x['violates_16h_rule'], x['specific_shift_counts'].get(shift_type, 0),
+            x['violates_16h_rule'] ,x['weekend_penalty'], x['specific_shift_counts'].get(shift_type, 0),
             x['department_counts'].get(department, 0), x['current_hours'], x['night_count'], x['consecutive_days']))
 
         return min(available_assistants, key=lambda x: (
-        x['violates_16h_rule'], x['specific_shift_counts'].get(shift_type, 0), x['current_hours'], x['night_count'],
+        x['violates_16h_rule'],x['weekend_penalty'], x['specific_shift_counts'].get(shift_type, 0), x['current_hours'], x['night_count'],
         x['consecutive_days']))
 
     def calculate_schedule_metrics(self, schedule):
