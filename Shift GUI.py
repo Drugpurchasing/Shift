@@ -641,17 +641,23 @@ class PharmacistScheduler:
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
 
-    def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift):
+    def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift): # <<< MODIFIED SIGNATURE
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
         hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
         preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
 
+        # <<< NEW: Add penalty for working on a weekend, scaling by weekends already worked >>>
         weekend_penalty = 0
         if is_weekend_shift:
+            # This penalizes working on a weekend. The penalty increases quadratically
+            # based on the number of weekend days they are *already* working.
+            # 1st weekend shift (count=0): 0 penalty
+            # 2nd weekend shift (count=1): 6 * 1^2 = 6 penalty
+            # 3rd weekend shift (count=2): 6 * 2^2 = 24 penalty
+            # This strongly encourages giving at least one weekend day off.
             weekend_penalty = self.W_WEEKEND_OFF * (pharmacist_data['weekend_work_count'] ** 2)
 
-        return consecutive_penalty + hours_penalty + preference_penalty
-
+        return consecutive_penalty + hours_penalty + preference_penalty + weekend_penalty
     def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
 
         is_weekend_shift = date.weekday() >= 5
