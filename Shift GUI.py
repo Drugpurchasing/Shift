@@ -23,6 +23,7 @@ class PharmacistScheduler:
     W_HOURS = 4
     W_PREFERENCE = 4
     W_WEEKEND_OFF = 6
+    W_JUNIOR_BONUS = 100
 
     def __init__(self, excel_file_path, logger=print, progress_bar=None):
         self.logger = logger
@@ -629,6 +630,7 @@ class PharmacistScheduler:
             if shift_type.startswith('C8'):
                 if not self.check_mixing_expert_ratio_optimized(schedule_dict, date, shift_type, pharmacist):
                     continue
+            is_junior = 'junior' in self.pharmacists[pharmacist]['skills']
             original_preference = self.get_preference_score(pharmacist, shift_type)
             multiplier = self.preference_multipliers.get(pharmacist, 1.0)
             pharmacist_data = {'name': pharmacist, 'preference_score': original_preference * multiplier,
@@ -636,7 +638,8 @@ class PharmacistScheduler:
                                'night_count': self.pharmacists[pharmacist]['night_shift_count'],
                                'mixing_count': self.pharmacists[pharmacist]['mixing_shift_count'],
                                'current_hours': current_hours_dict[pharmacist], 
-                               'weekend_work_count': pharmacist_weekend_work_count[pharmacist]
+                               'weekend_work_count': pharmacist_weekend_work_count[pharmacist],
+                               'is_junior': is_junior
                                }
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
@@ -646,16 +649,16 @@ class PharmacistScheduler:
         hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
         preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
 
-        # <<< NEW: Add penalty for working on a weekend, scaling by weekends already worked >>>
         weekend_penalty = 0
         if is_weekend_shift:
-            # This penalizes working on a weekend. The penalty increases quadratically
-            # based on the number of weekend days they are *already* working.
-            # 1st weekend shift (count=0): 0 penalty
-            # 2nd weekend shift (count=1): 6 * 1^2 = 6 penalty
-            # 3rd weekend shift (count=2): 6 * 2^2 = 24 penalty
-            # This strongly encourages giving at least one weekend day off.
             weekend_penalty = self.W_WEEKEND_OFF * (pharmacist_data['weekend_work_count'] ** 2)
+
+        # <<< NEW: Apply a bonus (penalty reduction) if the pharmacist is a junior >>>
+        junior_bonus = 0
+        if pharmacist_data.get('is_junior', False):
+            junior_bonus = -self.W_JUNIOR_BONUS # ลบโบนัสออกจากคะแนน (คะแนนน้อย = ดี)
+
+        return consecutive_penalty + hours_penalty + preference_penalty + weekend_penalty + junior_bonus
 
         return consecutive_penalty + hours_penalty + preference_penalty + weekend_penalty
     def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
