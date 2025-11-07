@@ -20,7 +20,7 @@ class PharmacistScheduler:
     Designed for multi-constraint pharmacist roster planning.
     """
     W_CONSECUTIVE = 8
-    W_HOURS = 4
+    W_HOURS = 16
     W_PREFERENCE = 4
     W_WEEKEND_OFF = 6
     W_JUNIOR_BONUS = 0
@@ -1188,7 +1188,7 @@ class PharmacistScheduler:
         processing_order_dates = problem_dates_sorted + other_dates
 
         unfilled_info = {'problem_days': [], 'other_days': []}
-        
+
         night_shifts_ordered = [s for s in shuffled_shifts if self.is_night_shift(s)]
         mixing_shifts_ordered = [s for s in shuffled_shifts if s.startswith('C8') and not self.is_night_shift(s)]
         care_shifts_ordered = [s for s in shuffled_shifts if
