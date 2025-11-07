@@ -768,14 +768,21 @@ class PharmacistScheduler:
         for date, shift_type in unfilled_shifts:
             required_skills = self.shift_types[shift_type].get('required_skills', [])
             all_candidates = []
+
+            is_weekend_shift = date.weekday() >= 5
+            
             for p_name, p_info in self.pharmacists.items():
                 if not all(skill.strip() in p_info['skills'] for skill in required_skills if skill.strip()): continue
                 if len(self.get_pharmacist_shifts(p_name, date, schedule)) > 0: continue
                 is_on_holiday = date.strftime('%Y-%m-%d') in p_info['holidays']
-                pharmacist_data = {'name': p_name, 'preference_score': self.get_preference_score(p_name, shift_type),
-                                   'consecutive_days': self.count_consecutive_shifts(p_name, date, schedule),
-                                   'current_hours': self.calculate_total_hours(p_name, schedule), }
-                suitability_score = self._calculate_suitability_score(pharmacist_data)
+                pharmacist_data = {
+                    'name': p_name, 
+                    'preference_score': self.get_preference_score(p_name, shift_type),
+                    'consecutive_days': self.count_consecutive_shifts(p_name, date, schedule),
+                    'current_hours': self.calculate_total_hours(p_name, schedule),
+                    'weekend_work_count': 0 
+                }
+                suitability_score = self._calculate_suitability_score(pharmacist_data, is_weekend_shift)
                 all_candidates.append({'name': p_name, 'is_on_holiday': is_on_holiday, 'score': suitability_score})
             sorted_candidates = sorted(all_candidates, key=lambda x: (x['is_on_holiday'], x['score']))
             suggestions_text = []
