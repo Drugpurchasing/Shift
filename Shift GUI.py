@@ -1541,6 +1541,8 @@ class AssistantScheduler:
             fill_slots(problematic_mixing_slots)
             fill_slots(problematic_other_slots)
 
+            random.shuffle(normal_slots)
+
             attempt_failed = False
             for date, shift_type in normal_slots:
                 available = self._get_available_assistants(shuffled_assistants, date, shift_type, schedule)
