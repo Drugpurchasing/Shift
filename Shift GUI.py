@@ -936,7 +936,7 @@ class PharmacistScheduler:
                         hours_val = int(shift_info['hours'])
                         if self.is_night_shift(shift):
                             cell2.value = f"{hours_val}N"
-                        elif shift_info['description'] == "10.00-18.00น":
+                        elif shift_info['description'] == "10.00-18.00น" or shift == "I400-8W/2":
                             cell2.value = f"{hours_val}*"
                         else:
                             cell2.value = hours_val
@@ -954,7 +954,7 @@ class PharmacistScheduler:
                         hours_val = int(shift_info['hours'])
                         if self.is_night_shift(shift):
                             cell1.value = f"{hours_val}N"
-                        elif shift_info['description'] == "10.00-18.00น":
+                        elif shift_info['description'] == "10.00-18.00น" or shift == "I400-8W/2":
                             cell1.value = f"{hours_val}*"
                         else:
                             cell1.value = hours_val
@@ -1869,7 +1869,7 @@ class AssistantScheduler:
                         hours_val = int(shift_info['hours'])
                         if self.is_night_shift(shift):
                             cell2.value = f"{hours_val}N"
-                        elif shift_info['description'] == "10.00-18.00น":
+                        elif shift_info['description'] == "10.00-18.00น" or shift == "I400-8W/2":
                             cell2.value = f"{hours_val}*"
                         else:
                             cell2.value = hours_val
@@ -1888,7 +1888,7 @@ class AssistantScheduler:
                             hours_val_2 = int(shift_info_2['hours'])
                             if self.is_night_shift(shift2):
                                 cell2.value = f"{hours_val_2}N"
-                            elif shift_info_2['description'] == "10.00-18.00น":
+                            elif shift_info_2['description'] == "10.00-18.00น" or shift2 == "I400-8W/2":
                                 cell2.value = f"{hours_val_2}*"
                             else:
                                 cell2.value = hours_val_2
@@ -1905,7 +1905,7 @@ class AssistantScheduler:
                             hours_val_1 = int(shift_info_1['hours'])
                             if self.is_night_shift(shift1):
                                 cell1.value = f"{hours_val_1}N"
-                            elif shift_info_1['description'] == "10.00-18.00น":
+                            elif shift_info_1['description'] == "10.00-18.00น" or shift1 == "I400-8W/2":
                                 cell1.value = f"{hours_val_1}*"
                             else:
                                 cell1.value = hours_val_1
