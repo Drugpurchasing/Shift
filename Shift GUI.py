@@ -891,14 +891,14 @@ class PharmacistScheduler:
     def create_daily_summary(self, ws, schedule):
         styles = self._setup_daily_summary_styles()
         ordered_pharmacists = ["ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)",
-                               "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)", "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)",
-                               "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)",
-                               "ภญ.ชลนิชา (เฟื่อง)", "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)",
-                               "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)", 'ภญ. ณัฐพร (แอม)', "ภญ.วรรณิดา (ม่าน)",
-                               "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)",
-                               "ภญ.ดวงดาว (ปลา)", "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)",
-                               "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)",
-                               "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)","PharmA","PharmB","PharmC","PharmD","PharmE","PharmF","PharmG","PharmH","PharmI"]
+                                "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)", "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)",
+                                "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)",
+                                "ภญ.ชลนิชา (เฟื่อง)", "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)",
+                                "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)", 'ภญ. ณัฐพร (แอม)', "ภญ.วรรณิดา (ม่าน)",
+                                "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)",
+                                "ภญ.ดวงดาว (ปลา)", "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)",
+                                "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)",
+                                "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)","PharmA","PharmB","PharmC","PharmD","PharmE","PharmF","PharmG","PharmH","PharmI"]
         ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
         sorted_dates = sorted(schedule.index)
         for col, date in enumerate(sorted_dates, 2):
@@ -931,8 +931,17 @@ class PharmacistScheduler:
                 else:
                     if len(shifts) > 0:
                         shift = shifts[0]
-                        cell2.value = f"{int(self.shift_types[shift]['hours'])}N" if self.is_night_shift(
-                            shift) else int(self.shift_types[shift]['hours'])
+                        # <<< MODIFICATION START >>>
+                        shift_info = self.shift_types[shift]
+                        hours_val = int(shift_info['hours'])
+                        if self.is_night_shift(shift):
+                            cell2.value = f"{hours_val}N"
+                        elif shift_info['description'] == "10.00-18.00น":
+                            cell2.value = f"{hours_val}*"
+                        else:
+                            cell2.value = hours_val
+                        # <<< MODIFICATION END >>>
+                        
                         prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
                         if prefix:
                             fill_color = styles['fills'][prefix]
@@ -940,8 +949,17 @@ class PharmacistScheduler:
                             if len(shifts) == 1: cell1.fill = fill_color
                     if len(shifts) > 1:
                         shift = shifts[1]
-                        cell1.value = f"{int(self.shift_types[shift]['hours'])}N" if self.is_night_shift(
-                            shift) else int(self.shift_types[shift]['hours'])
+                        # <<< MODIFICATION START >>>
+                        shift_info = self.shift_types[shift]
+                        hours_val = int(shift_info['hours'])
+                        if self.is_night_shift(shift):
+                            cell1.value = f"{hours_val}N"
+                        elif shift_info['description'] == "10.00-18.00น":
+                            cell1.value = f"{hours_val}*"
+                        else:
+                            cell1.value = hours_val
+                        # <<< MODIFICATION END >>>
+
                         prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
                         if prefix: cell1.fill, cell1.font = styles['fills'][prefix], styles['fonts'].get(prefix, Font(
                             bold=True))
@@ -1808,13 +1826,13 @@ class AssistantScheduler:
     def create_daily_summary(self, ws, schedule, daily_summary_data):
         styles = self._setup_daily_summary_styles()
         ordered_assistants = ["วิภาดา (โอ)", "พักตร์วลัยพร (ปู)", "นิรินทร (อุ้ย)", "วิภาณี (จิ๋ม)", "นัทชา (เก้า)",
-                              "ศิริรัตน์ (บี)", "จิรภา (แต๊ก)", "นิรนุช (ปัท)", "ปภัสรินทร์ (ออย)", "ศิริพร (ปุ๋ย)",
-                              "พรเพชร (กิ๊ฟ)", "อรุณรัตน์ (เจี๊ยบ)", "กาญจนา (โอ๋)", "พรมงคล (แม็กซ์)", "ฉลอง (โป้ง)",
-                              "พราวรวี (แพรว)"
+                                "ศิริรัตน์ (บี)", "จิรภา (แต๊ก)", "นิรนุช (ปัท)", "ปภัสรินทร์ (ออย)", "ศิริพร (ปุ๋ย)",
+                                "พรเพชร (กิ๊ฟ)", "อรุณรัตน์ (เจี๊ยบ)", "กาญจนา (โอ๋)", "พรมงคล (แม็กซ์)", "ฉลอง (โป้ง)",
+                                "พราวรวี (แพรว)"
             , "วสุพร (กิ๊ฟ)", "วรัญชลี (เมย์)", "กิตติยา (แนน)", "ปิยะรัตน์ (เบลล์)", "ปนัดดา (แหม่ม)", "ธารวิมล (นัท)",
-                              "เกียรติสุดา (ตาต้า)", "ชัญญา (แชมป์)", "แสงเดือน (อั๋น)", "สุกานดา (ตุํกตา)",
-                              "พัชรี (ใหม่)", "รุ่งนภา (แพท)", "เบญจวรรณ (จ๊อย)", "จันทร์ภรรัตน์ (อันโน)",
-                              "วีระยุทธ (เพ้นท์)", "ฉัตรกมล (ปุ้ย)"
+                                "เกียรติสุดา (ตาต้า)", "ชัญญา (แชมป์)", "แสงเดือน (อั๋น)", "สุกานดา (ตุํกตา)",
+                                "พัชรี (ใหม่)", "รุ่งนภา (แพท)", "เบญจวรรณ (จ๊อย)", "จันทร์ภรรัตน์ (อันโน)",
+                                "วีระยุทธ (เพ้นท์)", "ฉัตรกมล (ปุ้ย)"
             , "ณัฐฎนิช (มิน)", "วรัญญา (อ้าย)", "ขวัญเนตร (เจเจ)", "มานะ (ตั๊ก)", "รัฎดาวรรณ (เชอรรี่)"]
 
         ws.cell(row=1, column=1, value='Assistant').fill = styles['header_fill']
@@ -1846,8 +1864,17 @@ class AssistantScheduler:
                 else:
                     if not note_text and len(shifts) == 1:
                         shift = shifts[0]
-                        cell2.value = f"{int(self.shift_types[shift]['hours'])}N" if self.is_night_shift(
-                            shift) else int(self.shift_types[shift]['hours'])
+                        # <<< MODIFICATION START >>>
+                        shift_info = self.shift_types[shift]
+                        hours_val = int(shift_info['hours'])
+                        if self.is_night_shift(shift):
+                            cell2.value = f"{hours_val}N"
+                        elif shift_info['description'] == "10.00-18.00น":
+                            cell2.value = f"{hours_val}*"
+                        else:
+                            cell2.value = hours_val
+                        # <<< MODIFICATION END >>>
+                        
                         prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
                         if prefix:
                             fill = styles['fills'][prefix];
@@ -1856,16 +1883,34 @@ class AssistantScheduler:
                     elif (note_text and shifts) or len(shifts) > 1:
                         if shifts:
                             shift2 = shifts[0] if note_text else shifts[1]
-                            cell2.value = f"{int(self.shift_types[shift2]['hours'])}N" if self.is_night_shift(
-                                shift2) else int(self.shift_types[shift2]['hours'])
+                            # <<< MODIFICATION START >>>
+                            shift_info_2 = self.shift_types[shift2]
+                            hours_val_2 = int(shift_info_2['hours'])
+                            if self.is_night_shift(shift2):
+                                cell2.value = f"{hours_val_2}N"
+                            elif shift_info_2['description'] == "10.00-18.00น":
+                                cell2.value = f"{hours_val_2}*"
+                            else:
+                                cell2.value = hours_val_2
+                            # <<< MODIFICATION END >>>
+
                             prefix2 = next((p for p in styles['fills'] if shift2.startswith(p)), None)
                             if prefix2: cell2.fill, cell2.font = styles['fills'][prefix2], styles['fonts'].get(prefix2,
                                                                                                                Font(
                                                                                                                    bold=True))
                         if not note_text and len(shifts) > 1:
                             shift1 = shifts[0]
-                            cell1.value = f"{int(self.shift_types[shift1]['hours'])}N" if self.is_night_shift(
-                                shift1) else int(self.shift_types[shift1]['hours'])
+                            # <<< MODIFICATION START >>>
+                            shift_info_1 = self.shift_types[shift1]
+                            hours_val_1 = int(shift_info_1['hours'])
+                            if self.is_night_shift(shift1):
+                                cell1.value = f"{hours_val_1}N"
+                            elif shift_info_1['description'] == "10.00-18.00น":
+                                cell1.value = f"{hours_val_1}*"
+                            else:
+                                cell1.value = hours_val_1
+                            # <<< MODIFICATION END >>>
+
                             prefix1 = next((p for p in styles['fills'] if shift1.startswith(p)), None)
                             if prefix1: cell1.fill, cell1.font = styles['fills'][prefix1], styles['fonts'].get(prefix1,
                                                                                                                Font(
