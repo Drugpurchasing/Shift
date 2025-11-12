@@ -1290,7 +1290,7 @@ class AssistantScheduler:
         self.special_notes = {}
         self.read_data_from_excel(excel_file_path)
         self.night_shifts = {'I100-16', 'I100-12N', 'I400-12N', 'I400-16', 'O400ER-12N', 'O400ER-16'}
-        self.holidays = {'specific_dates': ['2025-10-13']}
+        self.holidays = {'specific_dates': ['2025-12-10', '2025-12-31']}
 
     def _update_progress(self, value, text):
         if self.progress_bar:
