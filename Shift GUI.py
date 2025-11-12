@@ -668,9 +668,21 @@ class PharmacistScheduler:
                         continue
             if self.is_night_shift(shift_type):
                 if self.has_nearby_night_shift_optimized(pharmacist, date, schedule_dict): continue
+                
+                # --- START MODIFICATION ---
                 next_date = date + timedelta(days=1)
-                if pharmacist in self.pre_assignments and next_date.strftime('%Y-%m-%d') in self.pre_assignments[
-                    pharmacist]: continue
+                
+                # ตรวจสอบว่า "วันพรุ่งนี้" อยู่ในตารางที่เรากำลังจัดหรือไม่
+                if next_date in schedule_dict:
+                    
+                    # ค้นหาว่าเภสัชกรคนนี้ "มีเวรใดๆ ก็ตาม" ที่ถูกจัดลงในวันพรุ่งนี้แล้วหรือยัง
+                    # (ซึ่งอาจเกิดจาก pre-assignment หรือการสุ่มวันที่มาจัดก่อน)
+                    pharmacists_working_tomorrow = {p for s, p in schedule_dict[next_date].items() if p in self.pharmacists}
+                    
+                    if pharmacist in pharmacists_working_tomorrow:
+                        # ถ้ามีเวรในวันพรุ่งนี้แล้ว -> ห้ามลงเวรดึกวันนี้
+                        continue 
+                # --- END MODIFICATION ---
             if shift_type.startswith('C8'):
                 if not self.check_mixing_expert_ratio_optimized(schedule_dict, date, shift_type, pharmacist):
                     continue
