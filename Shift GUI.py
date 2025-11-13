@@ -748,14 +748,37 @@ class PharmacistScheduler:
         return penalty
 
     def is_schedule_better(self, current_metrics, best_metrics):
+        # --- Priority 1: Unfilled Shifts (เหมือนเดิม) ---
         current_unfilled = current_metrics.get('unfilled_problem_shifts', float('inf'))
         best_unfilled = best_metrics.get('unfilled_problem_shifts', float('inf'))
-        if current_unfilled < best_unfilled: return True
-        if current_unfilled > best_unfilled: return False
-        weights = {'preference_score': 1.0, 'hour_imbalance_penalty': 25.0, 'night_variance': 800.0,
-                   'weekend_off_variance': 1000.0}
+        
+        if current_unfilled < best_unfilled: 
+            return True
+        if current_unfilled > best_unfilled: 
+            return False
+
+        # --- Priority 2: Hour Imbalance (แก้ไขใหม่ตามโจทย์) ---
+        # ถ้าเวรว่างเท่ากัน ให้มาเช็คที่ชั่วโมงการทำงาน
+        current_hour_penalty = current_metrics.get('hour_imbalance_penalty', float('inf'))
+        best_hour_penalty = best_metrics.get('hour_imbalance_penalty', float('inf'))
+
+        if current_hour_penalty < best_hour_penalty:
+            return True
+        if current_hour_penalty > best_hour_penalty:
+            return False
+
+        # --- Priority 3: Combined Score of Other Metrics (Fallback) ---
+        # ถ้าเวรว่าง และ ชั่วโมงการทำงาน ยังเท่ากัน
+        # ค่อยใช้คะแนนที่เหลือ (ความชอบ, เวรดึก, เวรเสาร์-อาทิตย์) เป็นตัวตัดสิน
+        weights = {
+            'preference_score': 1.0, 
+            'night_variance': 800.0,
+            'weekend_off_variance': 1000.0
+        }
+        
         current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
+        
         return current_score < best_score
 
     # ... The rest of the PharmacistScheduler class (export functions, etc.) remains unchanged ...
@@ -1495,11 +1518,25 @@ class AssistantScheduler:
                 'department_variance': total_dept_variance}
 
     def is_schedule_better(self, current_metrics, best_metrics):
-        weights = {'hour_diff': 100.0, 'night_variance': 75.0, 'department_variance': 200.0}
-        current_score = sum(weights[k] * current_metrics[k] for k in weights)
-        best_score = sum(weights[k] * best_metrics[k] for k in weights)
-        return current_score < best_score
+        # --- Priority 1: Hour Difference (แก้ไขใหม่ตามโจทย์) ---
+        current_hour_diff = current_metrics.get('hour_diff', float('inf'))
+        best_hour_diff = best_metrics.get('hour_diff', float('inf'))
 
+        if current_hour_diff < best_hour_diff:
+            return True
+        if current_hour_diff > best_hour_diff:
+            return False
+
+        # --- Priority 2: Combined Score of Other Metrics (Fallback) ---
+        # ถ้าชั่วโมงต่างกันเท่ากัน ให้ใช้เกณฑ์อื่นตัดสิน
+        weights = {
+            'night_variance': 75.0, 
+            'department_variance': 200.0
+        }
+        current_score = sum(weights[k] * current_metrics.get(k, 0) for k in weights)
+        best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
+        
+        return current_score < best_score
     def optimize_schedule(self, dates, iterations=10):
         problematic_dates = self._pre_schedule_staffing_check(dates)
         for name in self.assistants:
@@ -2523,5 +2560,6 @@ if run_button:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
         st.error(
             "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
+
 
 
