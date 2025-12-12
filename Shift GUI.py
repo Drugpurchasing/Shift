@@ -1207,14 +1207,20 @@ class PharmacistScheduler:
         schedule_dict = {date: {shift: 'NO SHIFT' for shift in self.shift_types} for date in dates_to_schedule}
         pharmacist_hours = {p: 0 for p in self.pharmacists}
         pharmacist_consecutive_days = {p: 0 for p in self.pharmacists}
+        
+        # --- 1. เพิ่มตัวแปรนับวันหยุดสุดสัปดาห์ ---
+        pharmacist_weekend_work_count = {p: 0 for p in self.pharmacists} 
+
         shuffled_shifts = list(self.shift_types.keys())
         random.shuffle(shuffled_shifts)
         shuffled_pharmacists = list(self.pharmacists.keys())
         random.shuffle(shuffled_pharmacists)
+        
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['night_shift_count'] = 0
             self.pharmacists[pharmacist]['mixing_shift_count'] = 0
             self.pharmacists[pharmacist]['category_counts'] = {'Mixing': 0, 'Night': 0}
+            
         for pharmacist, assignments in self.pre_assignments.items():
             if pharmacist not in self.pharmacists: continue
             for date_str, shift_types in assignments.items():
@@ -1226,18 +1232,13 @@ class PharmacistScheduler:
                         schedule_dict[matching_date][shift_type] = pharmacist
                         self._update_shift_counts(pharmacist, shift_type)
                         pharmacist_hours[pharmacist] += self.shift_types[shift_type]['hours']
-        all_dates = sorted(list(dates_to_schedule)) # <- all_dates ยังคงเรียงลำดับ
+                        
+        all_dates = sorted(list(dates_to_schedule)) 
         
-        # <<< MODIFICATION START: Randomize 'other_dates' processing order >>>
         problem_dates_sorted = sorted([d for d in all_dates if d in self.problem_days])
-
-        # ดึงวันที่เหลือออกมา
         other_dates = [d for d in all_dates if d not in self.problem_days]
-        
-        # สุ่มลำดับวันที่เหลือ
         random.shuffle(other_dates)
         
-        # วันที่มีปัญหา (เรียงลำดับ) จะถูกจัดก่อนเสมอ ตามด้วยวันที่เหลือ (สุ่มลำดับ)
         processing_order_dates = problem_dates_sorted + other_dates
 
         unfilled_info = {'problem_days': [], 'other_days': []}
@@ -1250,11 +1251,14 @@ class PharmacistScheduler:
                                 not self.is_night_shift(s) and not s.startswith('C8') and not s.startswith('Care')]
         standard_shift_order = night_shifts_ordered + mixing_shifts_ordered + care_shifts_ordered + other_shifts_ordered
         problem_day_shift_order = mixing_shifts_ordered + care_shifts_ordered + night_shifts_ordered + other_shifts_ordered
+        
         total_dates = len(processing_order_dates)
+        
         for i, date in enumerate(processing_order_dates):
             if progress_bar:
                 progress_text = f"รอบที่ {iteration_num}: กำลังจัดเวรวันที่ {date.strftime('%d/%m')}"
                 progress_bar.progress((i + 1) / total_dates, text=progress_text)
+            
             previous_date = date - timedelta(days=1)
             if previous_date in schedule_dict:
                 pharmacists_working_yesterday = {p for p in schedule_dict[previous_date].values() if
@@ -1267,27 +1271,37 @@ class PharmacistScheduler:
             else:
                 for p_name in self.pharmacists:
                     pharmacist_consecutive_days[p_name] = 0
+            
             is_day_before_problem_day = (date + timedelta(days=1)) in self.problem_days
             shifts_to_process = problem_day_shift_order if date in self.problem_days else standard_shift_order
+            
             for shift_type in shifts_to_process:
-                if schedule_dict[date][shift_type] != 'NO SHIFT' or not self.is_shift_available_on_date(shift_type,
-                                                                                                        date):
+                if schedule_dict[date][shift_type] != 'NO SHIFT' or not self.is_shift_available_on_date(shift_type, date):
                     continue
+                
+                # --- 2. ส่ง pharmacist_weekend_work_count เข้าไปในฟังก์ชัน ---
                 available = self._get_available_pharmacists_optimized(shuffled_pharmacists, date, shift_type,
                                                                       schedule_dict, pharmacist_hours,
-                                                                      pharmacist_consecutive_days)
+                                                                      pharmacist_consecutive_days,
+                                                                      pharmacist_weekend_work_count)
                 if available:
                     chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
                     pharmacist_to_assign = chosen['name']
                     schedule_dict[date][shift_type] = pharmacist_to_assign
                     self._update_shift_counts(pharmacist_to_assign, shift_type)
                     pharmacist_hours[pharmacist_to_assign] += self.shift_types[shift_type]['hours']
+                    
+                    # --- 3. อัปเดตค่าเมื่อทำงานเสาร์อาทิตย์ ---
+                    if date.weekday() >= 5: # 5 = Saturday, 6 = Sunday
+                        pharmacist_weekend_work_count[pharmacist_to_assign] += 1
+
                 else:
                     schedule_dict[date][shift_type] = 'UNFILLED'
                     if date in self.problem_days:
                         unfilled_info['problem_days'].append((date, shift_type))
                     else:
                         unfilled_info['other_days'].append((date, shift_type))
+                        
         final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
         final_schedule.fillna('NO SHIFT', inplace=True)
         return final_schedule, unfilled_info
