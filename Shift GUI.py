@@ -464,51 +464,38 @@ class PharmacistScheduler:
     def is_another_junior_in_same_department(self, candidate_pharmacist, date, new_shift_type, schedule_dict):
         """
         ตรวจสอบว่าการ assign เภสัชกร junior
-        จะทำให้มี junior 2 คนทำงานใน "แผนกเดียวกัน" (ตาม prefix ของเวร)
-        ในวันเดียวกันหรือไม่
+        จะทำให้มี junior 2 คนทำงานใน "แผนกเดียวกัน" ในวันเดียวกันหรือไม่
+        โดยมีข้อยกเว้นสำหรับเวร O400F2-6
         """
-        # <<< NEW RULE: เพิ่มข้อยกเว้นสำหรับ O400F2-6 >>>
-        # Junior สามารถขึ้นเวรนี้ได้ โดยไม่ต้องสนใจว่ามี Junior คนอื่นในแผนกหรือไม่ 
-        # (คืออยู่คนเดียวก็ได้ หรืออยู่กับ Junior อื่นก็ได้สำหรับเวรนี้)
-        if new_shift_type == 'O400F2-6':
-            return False
-        # <<< END NEW RULE >>>
 
-        # 1. กฎนี้ใช้เฉพาะเมื่อคนที่กำลังจะ assign เป็น junior
+        # กฎพื้นฐาน: เช็คเฉพาะถ้าคนนี้เป็น Junior
         if 'junior' not in self.pharmacists[candidate_pharmacist]['skills']:
             return False
 
-        # 2. หาว่าเวรใหม่นี้ อยู่แผนกอะไร (เช่น IPD100, Mixing)
+        # หาแผนกของเวรใหม่ (เช่น OPD400F2)
         new_dept = self.get_department_from_shift(new_shift_type)
-
-        # ถ้าเวรใหม่ไม่สังกัดแผนก (เช่น Care) ให้ถือว่ากฎนี้ไม่ทำงาน
         if new_dept is None:
             return False
 
-        # 3. ตรวจสอบเวรทั้งหมดที่จัดไปแล้วในวันนั้น
+        # ตรวจสอบเวรที่มีอยู่แล้วในตารางวันนี้
         if date in schedule_dict:
             for existing_shift, assigned_pharmacist in schedule_dict[date].items():
                 
-                # ข้ามเวรที่ยังว่าง
+                # ข้ามเวรที่ว่าง หรือเป็นตัวเอง
                 if assigned_pharmacist in ['NO SHIFT', 'UNASSIGNED', 'UNFILLED']:
                     continue
-                
-                # ไม่ต้องเทียบกับตัวเอง (กรณีมีเวร pre-assign หลายอัน)
                 if assigned_pharmacist == candidate_pharmacist:
                     continue
 
-                # 4. ตรวจสอบว่าคนที่ถูกจัดไปแล้ว เป็น junior หรือไม่
+                # ถ้าคนที่มีอยู่แล้วเป็น Junior
                 if 'junior' in self.pharmacists[assigned_pharmacist]['skills']:
-                    
-                    # 5. ถ้าเป็น junior, หาว่าเขาอยู่แผนกอะไร
                     existing_dept = self.get_department_from_shift(existing_shift)
                     
-                    # 6. ถ้าแผนกตรงกัน = เจอปัญหา
+                    # ถ้าแผนกตรงกัน (เช่น OPD400F2 เหมือนกัน) และไม่ใช่ข้อยกเว้นข้างบน
                     if existing_dept == new_dept:
-                        # Conflict: มี junior ทำงานในแผนกนี้แล้ว
+                        # Conflict: มี Junior อยู่ในกลุ่ม O400F2-4... อยู่แล้ว
                         return True
 
-        # ไม่พบปัญหา
         return False
 
     # <<< NEW METHOD END >>>
