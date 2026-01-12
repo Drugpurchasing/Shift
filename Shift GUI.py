@@ -57,6 +57,44 @@ class PharmacistScheduler:
     def _update_progress(self, value, text):
         if self.progress_bar:
             self.progress_bar.progress(value, text=text)
+    
+    def _calculate_preference_diff_percentage(self, schedule):
+        """
+        Calculates the difference between the maximum and minimum preference scores (%)
+        among all pharmacists.
+        """
+        percentages = []
+        MAX_POINTS_PER_SHIFT = 8
+        
+        for pharmacist in self.pharmacists:
+            total_achieved = 0
+            total_shifts = 0
+            
+            # Loop through all shifts for this pharmacist
+            for date in schedule.index:
+                for shift_type, assigned_pharm in schedule.loc[date].items():
+                    if assigned_pharm == pharmacist:
+                        total_shifts += 1
+                        rank = self.get_preference_score(pharmacist, shift_type)
+                        # Rank 1 = 8 points, Rank 8 = 1 point, Rank 9 (None) = 0
+                        points = max(0, 9 - rank)
+                        total_achieved += points
+            
+            if total_shifts > 0:
+                max_possible = total_shifts * MAX_POINTS_PER_SHIFT
+                pct = (total_achieved / max_possible) * 100
+                percentages.append(pct)
+            else:
+                # If no shifts worked, technically 0% or ignore. 
+                # To avoid skewing diff with 0 for someone who didn't work (e.g. sick), 
+                # we might conditionally ignore or set to average. 
+                # For fairness, if they work 0 shifts, their preference is irrelevant for now.
+                pass 
+
+        if not percentages:
+            return 0.0
+            
+        return max(percentages) - min(percentages)
 
     def read_data_from_excel(self, file_path_or_url):
         try:
@@ -510,18 +548,51 @@ class PharmacistScheduler:
             range_penalty = (hour_range - 10) ** 2
         return stdev_penalty + range_penalty
 
+    # แก้ไขเมธอดเดิม
     def calculate_schedule_metrics(self, schedule, year, month):
         hours = {p: self.calculate_total_hours(p, schedule) for p in self.pharmacists}
         night_counts = {p: self.pharmacists[p]['night_shift_count'] for p in self.pharmacists}
         weekend_off_var = self.calculate_weekend_off_variance(schedule, year, month)
         hour_penalty = self._get_hour_imbalance_penalty(hours)
+        
+        # --- NEW CODE START ---
+        pref_diff = self._calculate_preference_diff_percentage(schedule)
+        # --- NEW CODE END ---
+
         metrics = {
             'hour_imbalance_penalty': hour_penalty,
             'night_variance': np.var(list(night_counts.values())) if night_counts else 0,
             'preference_score': sum(self.calculate_preference_penalty(p, schedule) for p in self.pharmacists),
+            'preference_score_diff': pref_diff, # Add to metrics
             'weekend_off_variance': weekend_off_var
         }
+        
         if len(hours) > 1:
+            metrics['hour_diff_for_logging'] = stdev(hours.values())
+        else:
+            metrics['hour_diff_for_logging'] = 0
+        return metrics
+
+    # แก้ไขเมธอดเดิม (สำหรับโหมดเลือกวันที่)
+    def calculate_metrics_for_schedule(self, schedule):
+        hours = {p: self.calculate_total_hours(p, schedule) for p in self.pharmacists}
+        night_counts = {p: self.pharmacists[p]['night_shift_count'] for p in self.pharmacists}
+        weekend_off_var = self.calculate_weekend_off_variance_for_dates(schedule)
+        hour_penalty = self._get_hour_imbalance_penalty(hours)
+        
+        # --- NEW CODE START ---
+        pref_diff = self._calculate_preference_diff_percentage(schedule)
+        # --- NEW CODE END ---
+
+        metrics = {
+            'hour_imbalance_penalty': hour_penalty,
+            'night_variance': np.var(list(night_counts.values())) if night_counts else 0,
+            'preference_score': sum(self.calculate_preference_penalty(p, schedule) for p in self.pharmacists),
+            'preference_score_diff': pref_diff, # Add to metrics
+            'weekend_off_variance': weekend_off_var
+        }
+        
+        if len(hours) > 1 and len(hours.values()) > 1:
             metrics['hour_diff_for_logging'] = stdev(hours.values())
         else:
             metrics['hour_diff_for_logging'] = 0
@@ -748,7 +819,7 @@ class PharmacistScheduler:
         return penalty
 
     def is_schedule_better(self, current_metrics, best_metrics):
-        # --- Priority 1: Unfilled Shifts (เหมือนเดิม) ---
+        # --- Priority 1: Unfilled Shifts (ต้องไม่มีเวรว่างก่อน) ---
         current_unfilled = current_metrics.get('unfilled_problem_shifts', float('inf'))
         best_unfilled = best_metrics.get('unfilled_problem_shifts', float('inf'))
         
@@ -757,21 +828,30 @@ class PharmacistScheduler:
         if current_unfilled > best_unfilled: 
             return False
 
-        # --- Priority 2: Hour Imbalance (แก้ไขใหม่ตามโจทย์) ---
-        # ถ้าเวรว่างเท่ากัน ให้มาเช็คที่ชั่วโมงการทำงาน
+        # --- Priority 2: Hour Imbalance (ชั่วโมงงานต้องเท่าเทียมกันก่อน) ---
         current_hour_penalty = current_metrics.get('hour_imbalance_penalty', float('inf'))
         best_hour_penalty = best_metrics.get('hour_imbalance_penalty', float('inf'))
 
+        # ใช้ Tolerance เล็กน้อย (เช่น ถ้าน้อยกว่ากันไม่มาก ให้ถือว่าเท่ากัน เพื่อไปวัดที่ Preference Score)
+        # แต่เพื่อความเสถียร ให้เช็คแบบ Strict ก่อน
         if current_hour_penalty < best_hour_penalty:
             return True
         if current_hour_penalty > best_hour_penalty:
             return False
 
-        # --- Priority 3: Combined Score of Other Metrics (Fallback) ---
-        # ถ้าเวรว่าง และ ชั่วโมงการทำงาน ยังเท่ากัน
-        # ค่อยใช้คะแนนที่เหลือ (ความชอบ, เวรดึก, เวรเสาร์-อาทิตย์) เป็นตัวตัดสิน
+        # --- Priority 3: Preference Score Difference (NEW - ควบคุม Gap ไม่ให้เกิน 15%) ---
+        curr_pref_diff = current_metrics.get('preference_score_diff', float('inf'))
+        best_pref_diff = best_metrics.get('preference_score_diff', float('inf'))
+        
+        # เราต้องการให้ส่วนต่างน้อยที่สุด
+        if curr_pref_diff < best_pref_diff:
+            return True
+        if curr_pref_diff > best_pref_diff:
+            return False
+
+        # --- Priority 4: Combined Score of Other Metrics (Fallback) ---
         weights = {
-            'preference_score': 1.0, 
+            'preference_score': 1.0,  # คะแนนรวมความชอบ (ยิ่งน้อยยิ่งดี)
             'night_variance': 800.0,
             'weekend_off_variance': 1000.0
         }
@@ -780,7 +860,6 @@ class PharmacistScheduler:
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
         
         return current_score < best_score
-
     # ... The rest of the PharmacistScheduler class (export functions, etc.) remains unchanged ...
     # (The following functions are unchanged but included for completeness of the class)
     def export_to_excel(self, schedule, unfilled_info):
