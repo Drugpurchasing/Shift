@@ -670,7 +670,7 @@ class PharmacistScheduler:
                                              consecutive_days_dict, pharmacist_weekend_work_count):
         available_pharmacists = []
         
-        # หคนที่ขึ้นเวรดึกเมื่อวาน (วันนี้ห้ามขึ้นเวรทุกชนิด)
+        # หาคนที่ขึ้นเวรดึกเมื่อวาน
         pharmacists_on_night_yesterday = set()
         previous_date = date - timedelta(days=1)
         if previous_date in schedule_dict:
@@ -678,31 +678,21 @@ class PharmacistScheduler:
                                               p in self.pharmacists and self.is_night_shift(s)}
 
         for pharmacist in pharmacists:
-            # 1. ตรวจสอบวันหยุด (Holidays)
+            # --- Checks เงื่อนไขพื้นฐาน ---
             if date.strftime('%Y-%m-%d') in self.pharmacists[pharmacist]['holidays']: continue
-            
-            # 2. ตรวจสอบเวลาทับซ้อน (Overlap)
             if self.has_overlapping_shift_optimized(pharmacist, date, shift_type, schedule_dict): continue
-
-            # 3. ตรวจสอบ Junior ในแผนกเดียวกัน (ห้าม Junior 2 คนอยู่แผนกเดียวกัน)
             if self.is_another_junior_in_same_department(pharmacist, date, shift_type, schedule_dict): continue
-
-            # 4. ตรวจสอบกฎเวรดึก (ห้ามทำงานถ้าเมื่อวานดึก)
             if pharmacist in pharmacists_on_night_yesterday: continue
             
-            # 5. ตรวจสอบทักษะ (Skills)
             p_skills = self.pharmacists[pharmacist]['skills']
             s_req_skills = self.shift_types[shift_type]['required_skills']
             if not all(skill.strip() in p_skills for skill in s_req_skills if skill.strip()): continue
             
-            # 6. ตรวจสอบชั่วโมงทำงานสูงสุด (Max Hours)
             projected_hours = current_hours_dict[pharmacist] + self.shift_types[shift_type]['hours']
             if projected_hours > self.pharmacists[pharmacist].get('max_hours', 250): continue
             
-            # 7. ตรวจสอบลำดับเวรต้องห้าม (Restricted Sequence)
             if self.has_restricted_sequence_optimized(pharmacist, date, shift_type, schedule_dict): continue
             
-            # 8. ตรวจสอบโควต้าประเภทเวร (Shift Limits)
             category = self._get_shift_category(shift_type)
             if category:
                 limit = self.shift_limits.get(pharmacist, {}).get(category)
@@ -711,48 +701,37 @@ class PharmacistScheduler:
                     if current_count >= limit:
                         continue
             
-            # 9. Logic สำหรับเวรดึก (Night Shift Specifics)
             if self.is_night_shift(shift_type):
-                # ห้ามเวรดึกติดกัน หรือใกล้กันเกินไป
                 if self.has_nearby_night_shift_optimized(pharmacist, date, schedule_dict): continue
-                
-                # ห้ามลงดึกวันนี้ ถ้าพรุ่งนี้มีเวรเช้า (หรือเวรใดๆ) รออยู่แล้ว
                 next_date = date + timedelta(days=1)
                 if next_date in schedule_dict:
                     pharmacists_working_tomorrow = {p for s, p in schedule_dict[next_date].items() if p in self.pharmacists}
                     if pharmacist in pharmacists_working_tomorrow:
                         continue 
             
-            # 10. Logic สำหรับห้องผสมยา (Mixing Ratio)
             if shift_type.startswith('C8'):
                 if not self.check_mixing_expert_ratio_optimized(schedule_dict, date, shift_type, pharmacist):
                     continue
             
-            # --- ส่วนการเตรียมข้อมูลคะแนน (Score Calculation Data) ---
+            # --- ส่วนสำคัญ: เตรียมข้อมูลคะแนน (Score Data) ---
             
-            # ดึง Rank ความชอบ (ค่าดิบ 1-8 หรือ 12 ถ้า Unranked)
+            # 1. ดึง Rank (1-8 หรือ 12)
             rank_score = self.get_preference_score(pharmacist, shift_type)
             
-            # Multiplier เดิม (ถ้ายังใช้อยู่)
-            multiplier = self.preference_multipliers.get(pharmacist, 1.0)
-            
-            # --- NEW: คำนวณ % ความพึงพอใจแบบ Real-time (Robin Hood Logic) ---
+            # 2. คำนวณ % ความพึงพอใจ Real-time
             current_points = self.realtime_pref_points.get(pharmacist, 0)
             current_shifts = self.realtime_total_shifts.get(pharmacist, 0)
             
-            # คำนวณ %: (คะแนนที่ได้ / คะแนนเต็มที่เป็นไปได้)
-            # คะแนนเต็มต่อเวรคือ 8 (Rank 1)
             if current_shifts > 0:
                 current_score_percent = current_points / (current_shifts * 8)
             else:
-                # เริ่มต้นให้ทุกคนมีสถานะ 100% (ยังไม่โดนเวรแย่)
                 current_score_percent = 1.0 
             
-            # รวบรวมข้อมูลส่งกลับ
+            # 3. สร้าง Dictionary ข้อมูล (ต้องมี preference_rank ตรงนี้!)
             pharmacist_data = {
                 'name': pharmacist,
-                'preference_rank': rank_score,  # ส่ง Rank ไปคำนวณ Penalty
-                'current_score_percent': current_score_percent, # ส่ง % ไปทำ Dynamic Weight
+                'preference_rank': rank_score,  # <--- คีย์สำคัญที่หายไป
+                'current_score_percent': current_score_percent,
                 'consecutive_days': consecutive_days_dict[pharmacist],
                 'night_count': self.pharmacists[pharmacist]['night_shift_count'],
                 'mixing_count': self.pharmacists[pharmacist]['mixing_shift_count'],
@@ -765,20 +744,18 @@ class PharmacistScheduler:
         return available_pharmacists
 
     def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift):
-        # 1. Consecutive Penalty (โทษของการทำงานติดกัน)
+        # 1. Consecutive Penalty
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
         
-        # 2. Hours Penalty (โทษของชั่วโมงงานเยอะ)
+        # 2. Hours Penalty
         hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] ** 1.3)
 
-        # 3. Preference Penalty แบบ Dynamic (Robin Hood Logic)
-        # แก้ไขจุดที่ Error: เปลี่ยนจากเรียกใช้ 'preference_score' เป็น 'preference_rank'
+        # 3. Preference Penalty แบบ Dynamic (Robin Hood)
+        # ดึงค่าจาก Dictionary ที่สร้างในฟังก์ชันด้านบน
         rank = pharmacist_data['preference_rank'] 
         current_percent = pharmacist_data['current_score_percent']
         
-        # Logic: 
-        # ยิ่ง % ปัจจุบันต่ำ -> ยิ่งต้องปกป้อง (ตัวคูณ Penalty สูง)
-        # ยิ่ง % ปัจจุบันสูง -> ยิ่งต้องเสียสละ (ตัวคูณ Penalty ต่ำ)
+        # คำนวณ Protection Factor
         protection_factor = 1 / (max(0.01, current_percent) ** 3)
         
         preference_penalty = self.W_PREFERENCE * rank * protection_factor
