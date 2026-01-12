@@ -39,6 +39,12 @@ class PharmacistScheduler:
         self.excel_file_path = excel_file_path
         self.problem_days = set()
 
+        self.W_CONSECUTIVE = 20    # เพิ่มโทษการทำงานติดกัน (เพื่อสุขภาพ)
+        self.W_HOURS = 1           # ลดความสำคัญของการเกลี่ยชั่วโมงลง (เดิม 16 สูงเกินไป)
+        self.W_PREFERENCE = 150    # เพิ่มความสำคัญของความชอบ (เดิม 4 น้อยเกินไป)
+        self.W_WEEKEND_OFF = 50    # เพิ่มความสำคัญของการได้หยุดเสาร์อาทิตย์
+        self.W_JUNIOR_BONUS = 20   # โบนัสสำหรับ Junior
+
         self.read_data_from_excel(self.excel_file_path)
         self.load_historical_scores()
         self._calculate_preference_multipliers()
@@ -388,23 +394,26 @@ class PharmacistScheduler:
         return self.pharmacists[pharmacist]['night_shift_count']
 
     def get_preference_score(self, pharmacist, shift_type):
-        # <<< MODIFICATION START: Handle 'No Preference' >>>
         pharmacist_info = self.pharmacists[pharmacist]
 
-        # Check the new flag. If they have no preferences, return a neutral score.
-        # 5 is neutral (average of 1-8 is 4.5, 9 is unranked, so 5 is a good mid-point penalty).
+        # ถ้าเขาบอกว่า "ไม่มี preference" (None) ให้คะแนนกลางๆ
         if not pharmacist_info.get('has_preferences', True):
-            return 5 # Neutral preference score
-        # <<< MODIFICATION END >>>
+            return 5 
 
         department = self.get_department_from_shift(shift_type)
+        
+        # หาใน Rank 1-8
         for rank in range(1, 9):
-            # Use .get() to safely access the rank value, which might be None
             if pharmacist_info['preferences'].get(f'rank{rank}') == department:
+                # เจอ Rank ที่ชอบ คืนค่า Rank นั้น (ยิ่งน้อยยิ่งดี)
                 return rank
         
-        # Not found in ranks 1-8, return the "unranked" penalty
-        return 9
+        # --- MODIFICATION START ---
+        # ถ้าไม่เจอใน Rank 1-8 (Unranked)
+        # เดิมคืนค่า 9 ซึ่งห่างจาก Rank 8 แค่นิดเดียว
+        # เปลี่ยนเป็นคืนค่า 50 เพื่อให้ระบบรู้สึกว่าเป็น "เวรต้องห้าม" ถ้าเลือกได้จะไม่หยิบมา
+        return 50 
+        # --- MODIFICATION END ---
 
     def has_restricted_sequence_optimized(self, pharmacist, date, shift_type, schedule_dict):
         previous_date = date - timedelta(days=1)
@@ -1142,9 +1151,21 @@ class PharmacistScheduler:
                 for shift_type, assigned_pharm in schedule.loc[date].items():
                     if assigned_pharm == pharmacist:
                         total_shifts_worked += 1
-                        rank = self.get_preference_score(pharmacist, shift_type)
-                        points = max(0, 9 - rank)
+                        
+                        # ดึง Rank จริงๆ ออกมา (1-8) หรือถ้า Unranked จะได้ 50 จากฟังก์ชันที่เราแก้ข้างบน
+                        raw_rank = self.get_preference_score(pharmacist, shift_type)
+                        
+                        # --- MODIFICATION START ---
+                        # แปลงกลับเป็นคะแนนความพึงพอใจ
+                        # Rank 1 = 8 แต้ม, Rank 8 = 1 แต้ม, Unranked (>8) = 0 แต้ม
+                        if raw_rank <= 8:
+                            points = 9 - raw_rank
+                        else:
+                            points = 0
+                        # --- MODIFICATION END ---
+                        
                         total_achieved_points += points
+            
             if total_shifts_worked == 0:
                 scores[pharmacist] = 0
             else:
