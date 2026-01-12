@@ -1,29 +1,18 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta, time
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-from openpyxl.utils import get_column_letter
 import random
+from datetime import datetime, timedelta, time
 from statistics import stdev
 import io
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+from openpyxl.utils import get_column_letter
 
-
-# --- The PharmacistScheduler Class ---
-# ไม่มีการเปลี่ยนแปลงตรรกะหลักของคลาสนี้
-# --- The PharmacistScheduler Class ---
-# (MODIFIED to include the 'junior' skill constraint)
 class PharmacistScheduler:
     """
     Pharmacy shift scheduler with optimization and Excel export.
-    Designed for multi-constraint pharmacist roster planning.
+    Features: Robin Hood preference balancing, Junior constraint, and non-linear penalties.
     """
-    W_CONSECUTIVE = 8
-    W_HOURS = 16
-    W_PREFERENCE = 4
-    W_WEEKEND_OFF = 6
-    W_JUNIOR_BONUS = 0
 
     def __init__(self, excel_file_path, logger=print, progress_bar=None):
         self.logger = logger
@@ -39,14 +28,17 @@ class PharmacistScheduler:
         self.excel_file_path = excel_file_path
         self.problem_days = set()
 
-        self.W_CONSECUTIVE = 25    # ป้องกันการทำงานติดกันเกินไป
-        self.W_HOURS = 8           # ค่าน้ำหนักชั่วโมง (เพิ่มขึ้นเพื่อให้เกลี่ยงาน)
-        self.W_PREFERENCE = 100     # ค่าน้ำหนักความชอบ (ลดลงจาก 150 แต่ยังเยอะกว่า 4 ของเดิม)
-        self.W_WEEKEND_OFF = 40    # ให้ความสำคัญกับวันหยุดเสาร์อาทิตย์
-        self.W_JUNIOR_BONUS = 15   # โบนัส Junior
-
+        # --- CONFIGURATION: น้ำหนักคะแนน ---
+        self.W_CONSECUTIVE = 25    # ป้องกันการทำงานติดกัน
+        self.W_HOURS = 4           # น้ำหนักชั่วโมง (ลดลงเพื่อให้ Preference มีผลมากขึ้น)
+        self.W_PREFERENCE = 100    # น้ำหนักความชอบ (เป็นปัจจัยหลัก)
+        self.W_WEEKEND_OFF = 40    # ความสำคัญของวันหยุดเสาร์อาทิตย์
+        self.W_JUNIOR_BONUS = 15   # โบนัสช่วย Junior
+        
+        # ตัวแปรสำหรับคำนวณคะแนนแบบ Real-time (Dynamic Balancing)
         self.realtime_pref_points = {} 
         self.realtime_total_shifts = {}
+        # -----------------------------------
 
         self.read_data_from_excel(self.excel_file_path)
         self.load_historical_scores()
@@ -80,22 +72,18 @@ class PharmacistScheduler:
                 else:
                     max_hours = float(max_hours)
 
-                # Make sure skills are clean strings
                 skills_raw = str(row['Skills']).split(',')
                 skills_clean = [skill.strip() for skill in skills_raw if skill.strip()]
 
-                # <<< MODIFICATION START: Check for 'None' preferences >>>
                 preferences = {}
                 all_prefs_are_none = True
                 for i in range(1, 9):
                     rank_val = row.get(f'Rank{i}')
-                    # Check if value is None, NaN, or an empty string
                     if pd.isna(rank_val) or str(rank_val).strip().lower() in ['', 'none', 'nan']:
-                        preferences[f'rank{i}'] = None # Standardize to None
+                        preferences[f'rank{i}'] = None
                     else:
                         preferences[f'rank{i}'] = str(rank_val).strip()
-                        all_prefs_are_none = False # Found a real preference
-                # <<< MODIFICATION END >>>
+                        all_prefs_are_none = False
 
                 self.pharmacists[name] = {
                     'night_shift_count': 0,
@@ -103,9 +91,9 @@ class PharmacistScheduler:
                     'holidays': [date for date in str(row['Holidays']).split(',') if
                                  date != '1900-01-00' and date.strip() and date != 'nan'],
                     'shift_counts': {},
-                    'preferences': preferences, # <<< MODIFIED
+                    'preferences': preferences,
                     'max_hours': max_hours,
-                    'has_preferences': not all_prefs_are_none # <<< NEW FLAG
+                    'has_preferences': not all_prefs_are_none
                 }
 
             self._update_progress(20, "กำลังโหลดข้อมูล: ประเภทเวร...")
@@ -153,8 +141,8 @@ class PharmacistScheduler:
                             if pharmacist not in self.special_notes:
                                 self.special_notes[pharmacist] = {}
                             self.special_notes[pharmacist][date_str] = str(note).strip()
-        except Exception:
-            pass  # Ignore if sheets don't exist
+        except Exception as e:
+            self.logger(f"Error reading Excel: {e}")
 
         try:
             self._update_progress(80, "กำลังโหลดข้อมูล: ข้อจำกัดเวร...")
@@ -184,7 +172,6 @@ class PharmacistScheduler:
             self.logger("ไม่พบข้อมูลคะแนนย้อนหลัง (HistoricalScores)")
 
     def _pre_check_staffing_levels(self, year, month):
-        self.logger("กำลังตรวจสอบจำนวนพนักงานเปรียบเทียบกับจำนวนเวรที่ต้องการ...")
         start_date = datetime(year, month, 1)
         end_date = datetime(year, month + 1, 1) - timedelta(days=1) if month < 12 else datetime(year, 12, 31)
         dates = pd.date_range(start_date, end_date)
@@ -199,8 +186,6 @@ class PharmacistScheduler:
                 all_ok = False
                 self.problem_days.add(date)
                 self.logger(f"⚠️ คำเตือน: วันที่ {date.strftime('%Y-%m-%d')} อาจมีเภสัชกรไม่พอ")
-        if all_ok:
-            self.logger("✅ จำนวนพนักงานเพียงพอสำหรับทุกวัน")
         return not all_ok
 
     def optimize_schedule(self, year, month, iterations, progress_bar):
@@ -216,28 +201,6 @@ class PharmacistScheduler:
             if unfilled_info['other_days']: continue
             metrics = self.calculate_schedule_metrics(current_schedule, year, month)
             metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days'])
-            if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
-                best_schedule = current_schedule.copy()
-                best_metrics = metrics.copy()
-                best_unfilled_info = unfilled_info.copy()
-                self.logger(f"รอบที่ {i + 1}: ✅ พบตารางที่ดีกว่าเดิม!")
-        if best_schedule is not None:
-            self.logger("\n🎉 คำนวณเสร็จสิ้น! พบตารางที่ดีที่สุดแล้ว")
-        else:
-            self.logger("\n❌ ไม่สามารถหาตารางที่เหมาะสมได้")
-        return best_schedule, best_unfilled_info
-
-    def optimize_schedule_for_dates(self, dates_to_schedule, iterations, progress_bar):
-        best_schedule = None
-        best_metrics = {'unfilled_problem_shifts': float('inf'), 'preference_score': float('inf')}
-        best_unfilled_info = {}
-        self._pre_check_staffing_for_dates(dates_to_schedule)
-        self.logger(f"\nกำลังเริ่มการคำนวณ {iterations} รอบ สำหรับวันที่เลือก...")
-        for i in range(iterations):
-            current_schedule, unfilled_info = self.generate_schedule_for_dates(dates_to_schedule, progress_bar,
-                                                                               iteration_num=i + 1)
-            metrics = self.calculate_metrics_for_schedule(current_schedule)
-            metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days']) + len(unfilled_info['other_days'])
             if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
                 best_schedule = current_schedule.copy()
                 best_metrics = metrics.copy()
@@ -334,7 +297,6 @@ class PharmacistScheduler:
         shift_info = self.shift_types[shift_type]
         is_holiday_date = self.is_holiday(date)
         
-        # <<< MODIFICATION START >>>
         weekday = date.weekday() # Monday is 0, Sunday is 6
         is_friday = (weekday == 4)
         is_saturday = (weekday == 5)
@@ -343,80 +305,51 @@ class PharmacistScheduler:
         shift_category = shift_info['shift_type']
 
         if shift_category == 'weekday':
-            # Mon-Fri (0-4), excluding holidays
             return not (is_holiday_date or is_saturday or is_sunday)
             
         elif shift_category == 'วันจันทร์-พฤหัส':
-            # Mon-Thu (0-3), excluding holidays, Fri, Sat, Sun
             return not (is_holiday_date or is_friday or is_saturday or is_sunday)
             
         elif shift_category == 'saturday':
-            # Only Saturday, excluding holidays
             return is_saturday and not is_holiday_date
             
         elif shift_category == 'holiday':
-            # Public holidays, Saturdays, or Sundays
             return is_holiday_date or is_saturday or is_sunday
             
         elif shift_category == 'night':
-            # Any day
             return True
             
-        return False # Default for unknown types
-        # <<< MODIFICATION END >>>
+        return False
 
     def get_department_from_shift(self, shift_type):
-        if shift_type.startswith('I100'):
-            return 'IPD100'
-        elif shift_type.startswith('O100'):
-            return 'OPD100'
-        elif shift_type.startswith('Care'):
-            return 'Care'
-        elif shift_type.startswith('C8'):
-            return 'Mixing'
-        elif shift_type.startswith('I400'):
-            return 'IPD400'
-        elif shift_type.startswith('O400F1'):
-            return 'OPD400F1'
-        elif shift_type.startswith('O400F2'):
-            return 'OPD400F2'
-        elif shift_type.startswith('O400ER'):
-            return 'ER'
-        elif shift_type.startswith('ARI'):
-            return 'ARI'
+        if shift_type.startswith('I100'): return 'IPD100'
+        elif shift_type.startswith('O100'): return 'OPD100'
+        elif shift_type.startswith('Care'): return 'Care'
+        elif shift_type.startswith('C8'): return 'Mixing'
+        elif shift_type.startswith('I400'): return 'IPD400'
+        elif shift_type.startswith('O400F1'): return 'OPD400F1'
+        elif shift_type.startswith('O400F2'): return 'OPD400F2'
+        elif shift_type.startswith('O400ER'): return 'ER'
+        elif shift_type.startswith('ARI'): return 'ARI'
         return None
 
     def _get_shift_category(self, shift_type):
-        if self.is_night_shift(shift_type):
-            return 'Night'
-        if shift_type.startswith('C8'):
-            return 'Mixing'
+        if self.is_night_shift(shift_type): return 'Night'
+        if shift_type.startswith('C8'): return 'Mixing'
         return None
-
-    def get_night_shift_count(self, pharmacist):
-        return self.pharmacists[pharmacist]['night_shift_count']
 
     def get_preference_score(self, pharmacist, shift_type):
         pharmacist_info = self.pharmacists[pharmacist]
-
-        # ถ้าเขาบอกว่า "ไม่มี preference" (None) ให้คะแนนกลางๆ
         if not pharmacist_info.get('has_preferences', True):
-            return 5 
+            return 5 # Neutral
 
         department = self.get_department_from_shift(shift_type)
-        
-        # หาใน Rank 1-8
         for rank in range(1, 9):
             if pharmacist_info['preferences'].get(f'rank{rank}') == department:
-                # เจอ Rank ที่ชอบ คืนค่า Rank นั้น (ยิ่งน้อยยิ่งดี)
                 return rank
         
-        # --- MODIFICATION START ---
-        # ถ้าไม่เจอใน Rank 1-8 (Unranked)
-        # เดิมคืนค่า 9 ซึ่งห่างจาก Rank 8 แค่นิดเดียว
-        # เปลี่ยนเป็นคืนค่า 50 เพื่อให้ระบบรู้สึกว่าเป็น "เวรต้องห้าม" ถ้าเลือกได้จะไม่หยิบมา
-        return 8
-        # --- MODIFICATION END ---
+        # Unranked return 12 (Low preference but acceptable for balancing)
+        return 12
 
     def has_restricted_sequence_optimized(self, pharmacist, date, shift_type, schedule_dict):
         previous_date = date - timedelta(days=1)
@@ -439,51 +372,23 @@ class PharmacistScheduler:
                     return True
         return False
 
-    # <<< NEW METHOD START >>>
     def is_another_junior_in_same_department(self, candidate_pharmacist, date, new_shift_type, schedule_dict):
-        """
-        ตรวจสอบว่าการ assign เภสัชกร junior
-        จะทำให้มี junior 2 คนทำงานใน "แผนกเดียวกัน" (ตาม prefix ของเวร)
-        ในวันเดียวกันหรือไม่
-        """
-        # 1. กฎนี้ใช้เฉพาะเมื่อคนที่กำลังจะ assign เป็น junior
         if 'junior' not in self.pharmacists[candidate_pharmacist]['skills']:
             return False
-
-        # 2. หาว่าเวรใหม่นี้ อยู่แผนกอะไร (เช่น IPD100, Mixing)
         new_dept = self.get_department_from_shift(new_shift_type)
-
-        # ถ้าเวรใหม่ไม่สังกัดแผนก (เช่น Care) ให้ถือว่ากฎนี้ไม่ทำงาน
         if new_dept is None:
             return False
-
-        # 3. ตรวจสอบเวรทั้งหมดที่จัดไปแล้วในวันนั้น
         if date in schedule_dict:
             for existing_shift, assigned_pharmacist in schedule_dict[date].items():
-                
-                # ข้ามเวรที่ยังว่าง
                 if assigned_pharmacist in ['NO SHIFT', 'UNASSIGNED', 'UNFILLED']:
                     continue
-                
-                # ไม่ต้องเทียบกับตัวเอง (กรณีมีเวร pre-assign หลายอัน)
                 if assigned_pharmacist == candidate_pharmacist:
                     continue
-
-                # 4. ตรวจสอบว่าคนที่ถูกจัดไปแล้ว เป็น junior หรือไม่
                 if 'junior' in self.pharmacists[assigned_pharmacist]['skills']:
-                    
-                    # 5. ถ้าเป็น junior, หาว่าเขาอยู่แผนกอะไร
                     existing_dept = self.get_department_from_shift(existing_shift)
-                    
-                    # 6. ถ้าแผนกตรงกัน = เจอปัญหา
                     if existing_dept == new_dept:
-                        # Conflict: มี junior ทำงานในแผนกนี้แล้ว
                         return True
-
-        # ไม่พบปัญหา
         return False
-
-    # <<< NEW METHOD END >>>
 
     def has_nearby_night_shift_optimized(self, pharmacist, date, schedule_dict):
         for delta in [-2, -1, 1, 2]:
@@ -540,7 +445,7 @@ class PharmacistScheduler:
         return metrics
 
     def generate_monthly_schedule_shuffled(self, year, month, progress_bar, shuffled_shifts=None,
-                                           shuffled_pharmacists=None, iteration_num=1):
+                                             shuffled_pharmacists=None, iteration_num=1):
         start_date = datetime(year, month, 1)
         end_date = datetime(year + 1, 1, 1) - timedelta(days=1) if month == 12 else datetime(year, month + 1,
                                                                                              1) - timedelta(days=1)
@@ -549,8 +454,6 @@ class PharmacistScheduler:
         pharmacist_hours = {p: 0 for p in self.pharmacists}
         pharmacist_consecutive_days = {p: 0 for p in self.pharmacists}
         pharmacist_weekend_work_count = {p: 0 for p in self.pharmacists}
-        self.realtime_pref_points = {p: 0 for p in self.pharmacists}
-        self.realtime_total_shifts = {p: 0 for p in self.pharmacists}
 
         if shuffled_shifts is None:
             shuffled_shifts = list(self.shift_types.keys())
@@ -558,10 +461,17 @@ class PharmacistScheduler:
         if shuffled_pharmacists is None:
             shuffled_pharmacists = list(self.pharmacists.keys())
             random.shuffle(shuffled_pharmacists)
+        
+        # --- RESET REAL-TIME COUNTERS ---
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['night_shift_count'] = 0
             self.pharmacists[pharmacist]['mixing_shift_count'] = 0
             self.pharmacists[pharmacist]['category_counts'] = {'Mixing': 0, 'Night': 0}
+            
+        self.realtime_pref_points = {p: 0 for p in self.pharmacists}
+        self.realtime_total_shifts = {p: 0 for p in self.pharmacists}
+        # --------------------------------
+
         for pharmacist, assignments in self.pre_assignments.items():
             if pharmacist not in self.pharmacists: continue
             for date_str, shift_types in assignments.items():
@@ -572,19 +482,15 @@ class PharmacistScheduler:
                         schedule_dict[date][shift_type] = pharmacist
                         self._update_shift_counts(pharmacist, shift_type)
                         pharmacist_hours[pharmacist] += self.shift_types[shift_type]['hours']
+                        
         all_dates = list(pd.date_range(start_date, end_date))
-        # <<< MODIFICATION START: Randomize 'other_dates' processing order >>>
         problem_dates_sorted = sorted([d for d in all_dates if d in self.problem_days])
-        
-        # ดึงวันที่เหลือออกมา
         other_dates = [d for d in all_dates if d not in self.problem_days]
-        
-        # สุ่มลำดับวันที่เหลือ
-        random.shuffle(other_dates) 
-        
-        # วันที่มีปัญหา (เรียงลำดับ) จะถูกจัดก่อนเสมอ ตามด้วยวันที่เหลือ (สุ่มลำดับ)
+        random.shuffle(other_dates)
         processing_order_dates = problem_dates_sorted + other_dates
+        
         unfilled_info = {'problem_days': [], 'other_days': []}
+        
         night_shifts_ordered = [s for s in shuffled_shifts if self.is_night_shift(s)]
         mixing_shifts_ordered = [s for s in shuffled_shifts if s.startswith('C8') and not self.is_night_shift(s)]
         care_shifts_ordered = [s for s in shuffled_shifts if
@@ -593,32 +499,37 @@ class PharmacistScheduler:
                                 not self.is_night_shift(s) and not s.startswith('C8') and not s.startswith('Care')]
         standard_shift_order = night_shifts_ordered + mixing_shifts_ordered + care_shifts_ordered + other_shifts_ordered
         problem_day_shift_order = mixing_shifts_ordered + care_shifts_ordered + night_shifts_ordered + other_shifts_ordered
+        
         total_dates = len(processing_order_dates)
         for i, date in enumerate(processing_order_dates):
             if progress_bar:
                 progress_text = f"รอบที่ {iteration_num}: กำลังจัดเวรวันที่ {date.strftime('%d/%m')}"
                 progress_bar.progress((i + 1) / total_dates, text=progress_text)
-            pharmacists_working_yesterday = set()
+            
             previous_date = date - timedelta(days=1)
             if previous_date in schedule_dict:
                 pharmacists_working_yesterday = {p for p in schedule_dict[previous_date].values() if
                                                  p in self.pharmacists}
-            for p_name in self.pharmacists:
-                if p_name in pharmacists_working_yesterday:
-                    pharmacist_consecutive_days[p_name] += 1
-                else:
+                for p_name in self.pharmacists:
+                    if p_name in pharmacists_working_yesterday:
+                        pharmacist_consecutive_days[p_name] += 1
+                    else:
+                        pharmacist_consecutive_days[p_name] = 0
+            else:
+                for p_name in self.pharmacists:
                     pharmacist_consecutive_days[p_name] = 0
+            
             is_day_before_problem_day = (date + timedelta(days=1)) in self.problem_days
             shifts_to_process = problem_day_shift_order if date in self.problem_days else standard_shift_order
+            
             for shift_type in shifts_to_process:
-                if schedule_dict[date][shift_type] not in ['NO SHIFT', 'UNASSIGNED',
-                                                           'UNFILLED'] or not self.is_shift_available_on_date(
-                    shift_type, date):
+                if schedule_dict[date][shift_type] not in ['NO SHIFT', 'UNASSIGNED', 'UNFILLED'] or not self.is_shift_available_on_date(shift_type, date):
                     continue
+                
                 available = self._get_available_pharmacists_optimized(shuffled_pharmacists, date, shift_type,
-                                                                    schedule_dict, pharmacist_hours,
-                                                                    pharmacist_consecutive_days,
-                                                                    pharmacist_weekend_work_count)
+                                                                      schedule_dict, pharmacist_hours,
+                                                                      pharmacist_consecutive_days,
+                                                                      pharmacist_weekend_work_count)
                 
                 if available:
                     chosen = self._select_best_pharmacist(available, shift_type, date, is_day_before_problem_day)
@@ -626,7 +537,7 @@ class PharmacistScheduler:
                     schedule_dict[date][shift_type] = pharmacist_to_assign
                     self._update_shift_counts(pharmacist_to_assign, shift_type)
                     pharmacist_hours[pharmacist_to_assign] += self.shift_types[shift_type]['hours']
-                    if date.weekday() >= 5: # 5 = Saturday, 6 = Sunday
+                    if date.weekday() >= 5:
                         pharmacist_weekend_work_count[pharmacist_to_assign] += 1
                 else:
                     schedule_dict[date][shift_type] = 'UNFILLED'
@@ -637,13 +548,13 @@ class PharmacistScheduler:
                         final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
                         final_schedule.fillna('NO SHIFT', inplace=True)
                         return final_schedule, unfilled_info
+                        
         final_schedule = pd.DataFrame.from_dict(schedule_dict, orient='index')
         final_schedule = final_schedule.reindex(columns=list(self.shift_types.keys()), fill_value='NO SHIFT')
         final_schedule.fillna('NO SHIFT', inplace=True)
         return final_schedule, unfilled_info
 
     def _update_shift_counts(self, pharmacist, shift_type):
-        # ... (Code เดิม: นับ Night, Mixing) ...
         if self.is_night_shift(shift_type):
             self.pharmacists[pharmacist]['night_shift_count'] += 1
         if shift_type.startswith('C8'):
@@ -652,25 +563,23 @@ class PharmacistScheduler:
         if category and category in self.pharmacists[pharmacist]['category_counts']:
             self.pharmacists[pharmacist]['category_counts'][category] += 1
             
-        # --- MODIFICATION START: อัปเดตคะแนนความพึงพอใจ Real-time ---
+        # --- UPDATE REAL-TIME SCORE ---
+        # Logic: Rank 1=8 points ... Rank 8=1 point, Unranked=0
         raw_rank = self.get_preference_score(pharmacist, shift_type)
-        
-        # แปลง Rank เป็น Points (เหมือนใน report: Rank 1=8, Unranked=0)
         points = 0
         if raw_rank <= 8:
             points = 9 - raw_rank
         else:
-            points = 0 # Unranked ไม่ได้แต้ม
+            points = 0 
             
         self.realtime_pref_points[pharmacist] += points
         self.realtime_total_shifts[pharmacist] += 1
-        # --- MODIFICATION END ---
+        # ------------------------------
 
     def _get_available_pharmacists_optimized(self, pharmacists, date, shift_type, schedule_dict, current_hours_dict,
                                              consecutive_days_dict, pharmacist_weekend_work_count):
         available_pharmacists = []
         
-        # หาคนที่ขึ้นเวรดึกเมื่อวาน
         pharmacists_on_night_yesterday = set()
         previous_date = date - timedelta(days=1)
         if previous_date in schedule_dict:
@@ -678,7 +587,6 @@ class PharmacistScheduler:
                                               p in self.pharmacists and self.is_night_shift(s)}
 
         for pharmacist in pharmacists:
-            # --- Checks เงื่อนไขพื้นฐาน ---
             if date.strftime('%Y-%m-%d') in self.pharmacists[pharmacist]['holidays']: continue
             if self.has_overlapping_shift_optimized(pharmacist, date, shift_type, schedule_dict): continue
             if self.is_another_junior_in_same_department(pharmacist, date, shift_type, schedule_dict): continue
@@ -713,25 +621,22 @@ class PharmacistScheduler:
                 if not self.check_mixing_expert_ratio_optimized(schedule_dict, date, shift_type, pharmacist):
                     continue
             
-            # --- ส่วนสำคัญ: เตรียมข้อมูลคะแนน (Score Data) ---
-            
-            # 1. ดึง Rank (1-8 หรือ 12)
+            # --- PREPARE DATA FOR SCORING ---
             rank_score = self.get_preference_score(pharmacist, shift_type)
             
-            # 2. คำนวณ % ความพึงพอใจ Real-time
             current_points = self.realtime_pref_points.get(pharmacist, 0)
             current_shifts = self.realtime_total_shifts.get(pharmacist, 0)
             
+            # Calculate current satisfaction % (if 0 shifts, assume 100% happy)
             if current_shifts > 0:
                 current_score_percent = current_points / (current_shifts * 8)
             else:
                 current_score_percent = 1.0 
             
-            # 3. สร้าง Dictionary ข้อมูล (ต้องมี preference_rank ตรงนี้!)
             pharmacist_data = {
                 'name': pharmacist,
-                'preference_rank': rank_score,  # <--- คีย์สำคัญที่หายไป
-                'current_score_percent': current_score_percent,
+                'preference_rank': rank_score,  # Used for penalty
+                'current_score_percent': current_score_percent, # Used for dynamic weighting
                 'consecutive_days': consecutive_days_dict[pharmacist],
                 'night_count': self.pharmacists[pharmacist]['night_shift_count'],
                 'mixing_count': self.pharmacists[pharmacist]['mixing_shift_count'],
@@ -747,15 +652,14 @@ class PharmacistScheduler:
         # 1. Consecutive Penalty
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
         
-        # 2. Hours Penalty
+        # 2. Hours Penalty (Non-linear to force balance)
         hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] ** 1.3)
 
-        # 3. Preference Penalty แบบ Dynamic (Robin Hood)
-        # ดึงค่าจาก Dictionary ที่สร้างในฟังก์ชันด้านบน
-        rank = pharmacist_data['preference_rank'] 
+        # 3. Dynamic Preference Penalty (Robin Hood Logic)
+        rank = pharmacist_data['preference_rank']
         current_percent = pharmacist_data['current_score_percent']
         
-        # คำนวณ Protection Factor
+        # ยิ่ง % ต่ำ -> Protection Factor ยิ่งสูง (ปกป้องไม่ให้เจอเวรแย่อีก)
         protection_factor = 1 / (max(0.01, current_percent) ** 3)
         
         preference_penalty = self.W_PREFERENCE * rank * protection_factor
@@ -773,7 +677,6 @@ class PharmacistScheduler:
         return consecutive_penalty + hours_penalty + preference_penalty + weekend_penalty + junior_bonus
 
     def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
-
         is_weekend_shift = date.weekday() >= 5
 
         if self.is_night_shift(shift_type) and is_day_before_problem_day:
@@ -786,13 +689,13 @@ class PharmacistScheduler:
                     candidates_off_tomorrow.append(p_data)
             if candidates_off_tomorrow:
                 return min(candidates_off_tomorrow,
-                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x, is_weekend_shift))) # <<< MODIFIED CALL
+                           key=lambda x: (x['night_count'], self._calculate_suitability_score(x, is_weekend_shift)))
         if self.is_night_shift(shift_type):
-            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x, is_weekend_shift))) # <<< MODIFIED CALL
+            return min(available_pharmacists, key=lambda x: (x['night_count'], self._calculate_suitability_score(x, is_weekend_shift)))
         elif shift_type.startswith('C8'):
-            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x, is_weekend_shift))) # <<< MODIFIED CALL
+            return min(available_pharmacists, key=lambda x: (x['mixing_count'], self._calculate_suitability_score(x, is_weekend_shift)))
         else:
-            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x, is_weekend_shift)) # <<< MODIFIED CALL
+            return min(available_pharmacists, key=lambda x: self._calculate_suitability_score(x, is_weekend_shift))
 
     def calculate_preference_penalty(self, pharmacist, schedule):
         penalty = 0
@@ -803,7 +706,6 @@ class PharmacistScheduler:
         return penalty
 
     def is_schedule_better(self, current_metrics, best_metrics):
-        # --- Priority 1: Unfilled Shifts (เหมือนเดิม) ---
         current_unfilled = current_metrics.get('unfilled_problem_shifts', float('inf'))
         best_unfilled = best_metrics.get('unfilled_problem_shifts', float('inf'))
         
@@ -812,8 +714,7 @@ class PharmacistScheduler:
         if current_unfilled > best_unfilled: 
             return False
 
-        # --- Priority 2: Hour Imbalance (แก้ไขใหม่ตามโจทย์) ---
-        # ถ้าเวรว่างเท่ากัน ให้มาเช็คที่ชั่วโมงการทำงาน
+        # Priority 2: Hour Imbalance (Lower is better)
         current_hour_penalty = current_metrics.get('hour_imbalance_penalty', float('inf'))
         best_hour_penalty = best_metrics.get('hour_imbalance_penalty', float('inf'))
 
@@ -822,9 +723,7 @@ class PharmacistScheduler:
         if current_hour_penalty > best_hour_penalty:
             return False
 
-        # --- Priority 3: Combined Score of Other Metrics (Fallback) ---
-        # ถ้าเวรว่าง และ ชั่วโมงการทำงาน ยังเท่ากัน
-        # ค่อยใช้คะแนนที่เหลือ (ความชอบ, เวรดึก, เวรเสาร์-อาทิตย์) เป็นตัวตัดสิน
+        # Priority 3: Combined Score (Fallback)
         weights = {
             'preference_score': 1.0, 
             'night_variance': 800.0,
@@ -836,8 +735,6 @@ class PharmacistScheduler:
         
         return current_score < best_score
 
-    # ... The rest of the PharmacistScheduler class (export functions, etc.) remains unchanged ...
-    # (The following functions are unchanged but included for completeness of the class)
     def export_to_excel(self, schedule, unfilled_info):
         wb = Workbook()
         ws = wb.active
@@ -912,9 +809,14 @@ class PharmacistScheduler:
                 if not all(skill.strip() in p_info['skills'] for skill in required_skills if skill.strip()): continue
                 if len(self.get_pharmacist_shifts(p_name, date, schedule)) > 0: continue
                 is_on_holiday = date.strftime('%Y-%m-%d') in p_info['holidays']
+                
+                # Mock Data for negotiation (Rank 12 for Unranked)
+                rank = self.get_preference_score(p_name, shift_type)
+                
                 pharmacist_data = {
                     'name': p_name, 
-                    'preference_score': self.get_preference_score(p_name, shift_type),
+                    'preference_rank': rank,
+                    'current_score_percent': 1.0, # Dummy for negotiation display
                     'consecutive_days': self.count_consecutive_shifts(p_name, date, schedule),
                     'current_hours': self.calculate_total_hours(p_name, schedule),
                     'weekend_work_count': 0 
@@ -980,15 +882,7 @@ class PharmacistScheduler:
 
     def create_daily_summary(self, ws, schedule):
         styles = self._setup_daily_summary_styles()
-        ordered_pharmacists = ["ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)",
-                                "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)", "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)",
-                                "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)",
-                                "ภญ.ชลนิชา (เฟื่อง)", "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)",
-                                "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)", 'ภญ. ณัฐพร (แอม)', "ภญ.วรรณิดา (ม่าน)",
-                                "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)",
-                                "ภญ.ดวงดาว (ปลา)", "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)",
-                                "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)",
-                                "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)","ภญ.ณัฐนันท์ (มิ้น)","ภญ.สุภนิดา (แนนซ์)","ภญ.ชัญญาภัค (แมงปอ)","ภญ.ธมนวรรณ (ออฟ)","ภญ.วรนิษฐา (เมษา)","ภญ.ณัชชา (เอิง)","ภญ.พนิตตา (กวาง)","ภญ.ศวิตา (มิว)","ภญ.อภิญญา (อุ๋มอิ๋ม)"]
+        ordered_pharmacists = sorted(list(self.pharmacists.keys())) # Default sort
         ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
         sorted_dates = sorted(schedule.index)
         for col, date in enumerate(sorted_dates, 2):
@@ -1021,7 +915,6 @@ class PharmacistScheduler:
                 else:
                     if len(shifts) > 0:
                         shift = shifts[0]
-                        # <<< MODIFICATION START >>>
                         shift_info = self.shift_types[shift]
                         hours_val = int(shift_info['hours'])
                         if self.is_night_shift(shift):
@@ -1030,7 +923,6 @@ class PharmacistScheduler:
                             cell2.value = f"{hours_val}*"
                         else:
                             cell2.value = hours_val
-                        # <<< MODIFICATION END >>>
                         
                         prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
                         if prefix:
@@ -1039,7 +931,6 @@ class PharmacistScheduler:
                             if len(shifts) == 1: cell1.fill = fill_color
                     if len(shifts) > 1:
                         shift = shifts[1]
-                        # <<< MODIFICATION START >>>
                         shift_info = self.shift_types[shift]
                         hours_val = int(shift_info['hours'])
                         if self.is_night_shift(shift):
@@ -1048,7 +939,6 @@ class PharmacistScheduler:
                             cell1.value = f"{hours_val}*"
                         else:
                             cell1.value = hours_val
-                        # <<< MODIFICATION END >>>
 
                         prefix = next((p for p in styles['fills'] if shift.startswith(p)), None)
                         if prefix: cell1.fill, cell1.font = styles['fills'][prefix], styles['fonts'].get(prefix, Font(
@@ -1104,15 +994,7 @@ class PharmacistScheduler:
 
     def create_daily_summary_with_codes(self, ws, schedule):
         styles = self._setup_daily_summary_styles()
-        ordered_pharmacists = ["ภญ.ประภัสสรา (มิ้น)", "ภญ.ฐิฏิการ (เอ้)", "ภก.บัณฑิตวงศ์ (แพท)", "ภก.ชานนท์ (บุ้ง)",
-                                "ภญ.กมลพรรณ (ใบเตย)", "ภญ.กนกพร (นุ้ย)", "ภก.เอกวรรณ (โม)", "ภญ.อาภาภัทร (มะปราง)",
-                                "ภก.ชวนันท์ (เท่ห์)", "ภญ.ธนพร (ฟ้า ธนพร)", "ภญ.วิลินดา (เชอร์รี่)",
-                                "ภญ.ชลนิชา (เฟื่อง)", "ภญ.ปริญญ์ (ขมิ้น)", "ภก.ธนภรณ์ (กิ๊ฟ)", "ภญ.ปุณยวีร์ (มิ้นท์)",
-                                "ภญ.อมลกานต์ (บอม)", "ภญ.อรรชนา (อ้อม)", "ภญ.ศศิวิมล (ฟิลด์)", 'ภญ. ณัฐพร (แอม)', "ภญ.วรรณิดา (ม่าน)",
-                                "ภญ.ปาณิศา (แบม)", "ภญ.จิรัชญา (ศิกานต์)", "ภญ.อภิชญา (น้ำตาล)", "ภญ.วรางคณา (ณา)",
-                                "ภญ.ดวงดาว (ปลา)", "ภญ.พรนภา (ผึ้ง)", "ภญ.ธนาภรณ์ (ลูกตาล)", "ภญ.วิลาสินี (เจ้นท์)",
-                                "ภญ.ภาวิตา (จูน)", "ภญ.ศิรดา (พลอย)", "ภญ.ศุภิสรา (แพร)", "ภญ.กันต์หทัย (ซีน)",
-                                "ภญ.พัทธ์ธีรา (วิว)", "ภญ.จุฑามาศ (กวาง)","ภญ.ณัฐนันท์ (มิ้น)","ภญ.สุภนิดา (แนนซ์)","ภญ.ชัญญาภัค (แมงปอ)","ภญ.ธมนวรรณ (ออฟ)","ภญ.วรนิษฐา (เมษา)","ภญ.ณัชชา (เอิง)","ภญ.พนิตตา (กวาง)","ภญ.ศวิตา (มิว)","ภญ.อภิญญา (อุ๋มอิ๋ม)"]
+        ordered_pharmacists = sorted(list(self.pharmacists.keys()))
         ws.cell(row=1, column=1, value='Pharmacist').fill = styles['header_fill']
         sorted_dates = sorted(schedule.index)
         for col, date in enumerate(sorted_dates, 2):
@@ -1197,21 +1079,12 @@ class PharmacistScheduler:
                 for shift_type, assigned_pharm in schedule.loc[date].items():
                     if assigned_pharm == pharmacist:
                         total_shifts_worked += 1
-                        
-                        # ดึง Rank จริงๆ ออกมา (1-8) หรือถ้า Unranked จะได้ 50 จากฟังก์ชันที่เราแก้ข้างบน
                         raw_rank = self.get_preference_score(pharmacist, shift_type)
-                        
-                        # --- MODIFICATION START ---
-                        # แปลงกลับเป็นคะแนนความพึงพอใจ
-                        # Rank 1 = 8 แต้ม, Rank 8 = 1 แต้ม, Unranked (>8) = 0 แต้ม
                         if raw_rank <= 8:
                             points = 9 - raw_rank
                         else:
                             points = 0
-                        # --- MODIFICATION END ---
-                        
                         total_achieved_points += points
-            
             if total_shifts_worked == 0:
                 scores[pharmacist] = 0
             else:
