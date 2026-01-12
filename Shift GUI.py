@@ -1,13 +1,19 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-import random
 from datetime import datetime, timedelta, time
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
+import random
 from statistics import stdev
 import io
-from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
-from openpyxl.utils import get_column_letter
 
+
+# --- The PharmacistScheduler Class ---
+# ไม่มีการเปลี่ยนแปลงตรรกะหลักของคลาสนี้
+# --- The PharmacistScheduler Class ---
+# (MODIFIED to include the 'junior' skill constraint)
 class PharmacistScheduler:
     """
     Pharmacy shift scheduler with optimization and Excel export.
