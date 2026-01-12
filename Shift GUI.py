@@ -39,11 +39,11 @@ class PharmacistScheduler:
         self.excel_file_path = excel_file_path
         self.problem_days = set()
 
-        self.W_CONSECUTIVE = 20    # เพิ่มโทษการทำงานติดกัน (เพื่อสุขภาพ)
-        self.W_HOURS = 1           # ลดความสำคัญของการเกลี่ยชั่วโมงลง (เดิม 16 สูงเกินไป)
-        self.W_PREFERENCE = 150    # เพิ่มความสำคัญของความชอบ (เดิม 4 น้อยเกินไป)
-        self.W_WEEKEND_OFF = 50    # เพิ่มความสำคัญของการได้หยุดเสาร์อาทิตย์
-        self.W_JUNIOR_BONUS = 20   # โบนัสสำหรับ Junior
+        self.W_CONSECUTIVE = 25    # ป้องกันการทำงานติดกันเกินไป
+        self.W_HOURS = 8           # ค่าน้ำหนักชั่วโมง (เพิ่มขึ้นเพื่อให้เกลี่ยงาน)
+        self.W_PREFERENCE = 20     # ค่าน้ำหนักความชอบ (ลดลงจาก 150 แต่ยังเยอะกว่า 4 ของเดิม)
+        self.W_WEEKEND_OFF = 40    # ให้ความสำคัญกับวันหยุดเสาร์อาทิตย์
+        self.W_JUNIOR_BONUS = 15   # โบนัส Junior
 
         self.read_data_from_excel(self.excel_file_path)
         self.load_historical_scores()
@@ -412,7 +412,7 @@ class PharmacistScheduler:
         # ถ้าไม่เจอใน Rank 1-8 (Unranked)
         # เดิมคืนค่า 9 ซึ่งห่างจาก Rank 8 แค่นิดเดียว
         # เปลี่ยนเป็นคืนค่า 50 เพื่อให้ระบบรู้สึกว่าเป็น "เวรต้องห้าม" ถ้าเลือกได้จะไม่หยิบมา
-        return 50 
+        return 8
         # --- MODIFICATION END ---
 
     def has_restricted_sequence_optimized(self, pharmacist, date, shift_type, schedule_dict):
@@ -709,23 +709,29 @@ class PharmacistScheduler:
             available_pharmacists.append(pharmacist_data)
         return available_pharmacists
 
-    def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift): # <<< MODIFIED SIGNATURE
+    def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift):
+        # 1. โทษของการทำงานติดกัน (Exponential)
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
-        hours_penalty = self.W_HOURS * pharmacist_data['current_hours']
+        
+        # --- MODIFICATION START: ใช้ยกกำลังเพื่อกดดันให้ชั่วโมงเท่ากัน ---
+        # ใช้ current_hours ยกกำลัง 1.3 (ตัวเลขนี้ปรับได้ 1.2-1.5)
+        # ผลคือ: ช่วงแรกชั่วโมงไม่เท่ากันไม่เป็นไร แต่พอชั่วโมงเยอะๆ ระบบจะพยายามเกลี่ยทันที
+        hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] ** 1.3)
+        # --- MODIFICATION END ---
+
+        # 3. โทษของ Preference (Rank ยิ่งเยอะ ยิ่งโดนทำโทษหนัก)
         preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
 
         weekend_penalty = 0
         if is_weekend_shift:
             weekend_penalty = self.W_WEEKEND_OFF * (pharmacist_data['weekend_work_count'] ** 2)
 
-        # <<< NEW: Apply a bonus (penalty reduction) if the pharmacist is a junior >>>
         junior_bonus = 0
         if pharmacist_data.get('is_junior', False):
-            junior_bonus = -self.W_JUNIOR_BONUS # ลบโบนัสออกจากคะแนน (คะแนนน้อย = ดี)
+            junior_bonus = -self.W_JUNIOR_BONUS
 
         return consecutive_penalty + hours_penalty + preference_penalty + weekend_penalty + junior_bonus
 
-        return consecutive_penalty + hours_penalty + preference_penalty + weekend_penalty
     def _select_best_pharmacist(self, available_pharmacists, shift_type, date, is_day_before_problem_day):
 
         is_weekend_shift = date.weekday() >= 5
