@@ -765,22 +765,30 @@ class PharmacistScheduler:
         return available_pharmacists
 
     def _calculate_suitability_score(self, pharmacist_data, is_weekend_shift):
-        # 1. โทษของการทำงานติดกัน (Exponential)
+        # 1. Consecutive Penalty (โทษของการทำงานติดกัน)
         consecutive_penalty = self.W_CONSECUTIVE * (pharmacist_data['consecutive_days'] ** 2)
         
-        # --- MODIFICATION START: ใช้ยกกำลังเพื่อกดดันให้ชั่วโมงเท่ากัน ---
-        # ใช้ current_hours ยกกำลัง 1.3 (ตัวเลขนี้ปรับได้ 1.2-1.5)
-        # ผลคือ: ช่วงแรกชั่วโมงไม่เท่ากันไม่เป็นไร แต่พอชั่วโมงเยอะๆ ระบบจะพยายามเกลี่ยทันที
+        # 2. Hours Penalty (โทษของชั่วโมงงานเยอะ)
         hours_penalty = self.W_HOURS * (pharmacist_data['current_hours'] ** 1.3)
-        # --- MODIFICATION END ---
 
-        # 3. โทษของ Preference (Rank ยิ่งเยอะ ยิ่งโดนทำโทษหนัก)
-        preference_penalty = self.W_PREFERENCE * pharmacist_data['preference_score']
+        # 3. Preference Penalty แบบ Dynamic (Robin Hood Logic)
+        # แก้ไขจุดที่ Error: เปลี่ยนจากเรียกใช้ 'preference_score' เป็น 'preference_rank'
+        rank = pharmacist_data['preference_rank'] 
+        current_percent = pharmacist_data['current_score_percent']
+        
+        # Logic: 
+        # ยิ่ง % ปัจจุบันต่ำ -> ยิ่งต้องปกป้อง (ตัวคูณ Penalty สูง)
+        # ยิ่ง % ปัจจุบันสูง -> ยิ่งต้องเสียสละ (ตัวคูณ Penalty ต่ำ)
+        protection_factor = 1 / (max(0.01, current_percent) ** 3)
+        
+        preference_penalty = self.W_PREFERENCE * rank * protection_factor
 
+        # 4. Weekend Penalty
         weekend_penalty = 0
         if is_weekend_shift:
             weekend_penalty = self.W_WEEKEND_OFF * (pharmacist_data['weekend_work_count'] ** 2)
 
+        # 5. Junior Bonus
         junior_bonus = 0
         if pharmacist_data.get('is_junior', False):
             junior_bonus = -self.W_JUNIOR_BONUS
