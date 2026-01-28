@@ -1968,6 +1968,7 @@ class AssistantScheduler:
         self.create_daily_summary(ws_daily, schedule, daily_summary_data)
         self.create_daily_summary_with_codes(ws_daily_codes, schedule, daily_summary_data)
         self.create_long_term_fairness_sheet(wb, schedule, daily_summary_data)
+        self.create_signin_sheet(wb, schedule, daily_summary_data)
 
         buffer = io.BytesIO()
         wb.save(buffer)
