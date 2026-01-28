@@ -885,18 +885,29 @@ class PharmacistScheduler:
             else:
                 cell.fill = header_fill
 
-        # --- 2. Data Rows ---
+        # --- 2. Data Rows (Shift x Date) ---
         current_row = 2
         for shift_code in self.shift_types:
-            # ดึงข้อมูลจาก shift_types มาสร้างชื่อเวรใหม่
             shift_info = self.shift_types[shift_code]
-            display_name = f"{shift_code}\n({shift_info['start_time']}-{shift_info['end_time']})"
             
-            # Column A: แสดงผลแบบ Code + ช่วงเวลา
+            # ดึงเวลาและฟอร์แมตให้เหลือแค่ HH:MM
+            def format_time_short(t):
+                if isinstance(t, time):
+                    return t.strftime('%H:%M')
+                return str(t)[:5] # กรณีเป็น string ให้ตัดเอา 5 ตัวแรก
+
+            st_time = format_time_short(shift_info['start_time'])
+            en_time = format_time_short(shift_info['end_time'])
+            
+            # ใช้ Description เป็นชื่อหลักตามที่ต้องการ
+            display_name = f"{shift_info['description']}\n({st_time} - {en_time})"
+            
             cell_shift = ws.cell(row=current_row, column=1, value=display_name)
-            cell_shift.font = Font(bold=True, size=9) # ปรับขนาดเล็กลงหน่อยเพราะข้อความยาวขึ้น
+            cell_shift.font = Font(bold=True, size=9)
             cell_shift.border = border
-            cell_shift.alignment = Alignment(vertical='center', horizontal='center', wrap_text=True)
+            cell_shift.alignment = Alignment(vertical='center', horizontal='left', wrap_text=True) # ปรับเป็นชิดซ้ายให้เหมือนหัวตาราง
+
+            # ... (ส่วนตรรกะการเว้นว่างชื่อเพื่อให้เซ็นชื่อยังคงเหมือนเดิม)
 
             for col_idx, date in enumerate(sorted_dates, 2):
                 cell = ws.cell(row=current_row, column=col_idx)
@@ -1998,18 +2009,28 @@ class AssistantScheduler:
             else:
                 cell.fill = header_fill
 
-        # --- 2. Data Rows ---
+        # --- 2. Data Rows (Shift x Date) ---
         current_row = 2
         for shift_code in self.shift_types:
-            # ดึงข้อมูลจาก shift_types มาสร้างชื่อเวรใหม่
             shift_info = self.shift_types[shift_code]
-            display_name = f"{shift_code}\n({shift_info['start_time']}-{shift_info['end_time']})"
             
-            # Column A: แสดงผลแบบ Code + ช่วงเวลา
+            def format_time_short(t):
+                if isinstance(t, time):
+                    return t.strftime('%H:%M')
+                return str(t)[:5]
+
+            st_time = format_time_short(shift_info['start_time'])
+            en_time = format_time_short(shift_info['end_time'])
+            
+            # เปลี่ยนจาก shift_code เป็น description
+            display_name = f"{shift_info['description']}\n({st_time} - {en_time})"
+            
             cell_shift = ws.cell(row=current_row, column=1, value=display_name)
-            cell_shift.font = Font(bold=True, size=9) # ปรับขนาดเล็กลงหน่อยเพราะข้อความยาวขึ้น
+            cell_shift.font = Font(bold=True, size=9)
             cell_shift.border = border
-            cell_shift.alignment = Alignment(vertical='center', horizontal='center', wrap_text=True)
+            cell_shift.alignment = Alignment(vertical='center', horizontal='left', wrap_text=True)
+
+            # ... (ส่วนตรรกะการเว้นว่างชื่อเพื่อให้เซ็นชื่อยังคงเหมือนเดิม)
 
             for col_idx, date in enumerate(sorted_dates, 2):
                 cell = ws.cell(row=current_row, column=col_idx)
