@@ -888,10 +888,15 @@ class PharmacistScheduler:
         # --- 2. Data Rows ---
         current_row = 2
         for shift_code in self.shift_types:
-            cell_shift = ws.cell(row=current_row, column=1, value=shift_code)
-            cell_shift.font = font_bold
+            # ดึงข้อมูลจาก shift_types มาสร้างชื่อเวรใหม่
+            shift_info = self.shift_types[shift_code]
+            display_name = f"{shift_code}\n({shift_info['start_time']}-{shift_info['end_time']})"
+            
+            # Column A: แสดงผลแบบ Code + ช่วงเวลา
+            cell_shift = ws.cell(row=current_row, column=1, value=display_name)
+            cell_shift.font = Font(bold=True, size=9) # ปรับขนาดเล็กลงหน่อยเพราะข้อความยาวขึ้น
             cell_shift.border = border
-            cell_shift.alignment = Alignment(vertical='center')
+            cell_shift.alignment = Alignment(vertical='center', horizontal='center', wrap_text=True)
 
             for col_idx, date in enumerate(sorted_dates, 2):
                 cell = ws.cell(row=current_row, column=col_idx)
@@ -1996,10 +2001,15 @@ class AssistantScheduler:
         # --- 2. Data Rows ---
         current_row = 2
         for shift_code in self.shift_types:
-            cell_shift = ws.cell(row=current_row, column=1, value=shift_code)
-            cell_shift.font = font_bold
+            # ดึงข้อมูลจาก shift_types มาสร้างชื่อเวรใหม่
+            shift_info = self.shift_types[shift_code]
+            display_name = f"{shift_code}\n({shift_info['start_time']}-{shift_info['end_time']})"
+            
+            # Column A: แสดงผลแบบ Code + ช่วงเวลา
+            cell_shift = ws.cell(row=current_row, column=1, value=display_name)
+            cell_shift.font = Font(bold=True, size=9) # ปรับขนาดเล็กลงหน่อยเพราะข้อความยาวขึ้น
             cell_shift.border = border
-            cell_shift.alignment = Alignment(vertical='center')
+            cell_shift.alignment = Alignment(vertical='center', horizontal='center', wrap_text=True)
 
             for col_idx, date in enumerate(sorted_dates, 2):
                 cell = ws.cell(row=current_row, column=col_idx)
