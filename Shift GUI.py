@@ -854,20 +854,20 @@ class PharmacistScheduler:
     def create_signin_sheet(self, wb, schedule):
         ws = wb.create_sheet("Sign-in Sheet")
         
-        # --- Styles ---
-        header_fill = PatternFill(start_color='FFD3D3D3', fill_type='solid') 
+        # --- ดึง Styles มาจากเมธอดที่ตั้งค่าไว้แล้ว ---
+        summary_styles = self._setup_daily_summary_styles()
+        header_fill = summary_styles['header_fill']
         no_shift_fill = PatternFill(start_color='FF808080', fill_type='solid') 
-        weekend_fill = PatternFill(start_color='FFFFE4E1', fill_type='solid')
-        holiday_fill = PatternFill(start_color='FFFFB6C1', fill_type='solid')
+        weekend_fill = summary_styles['weekend_fill']
+        holiday_fill = summary_styles['holiday_fill']
         
         border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                         top=Side(style='thin'), bottom=Side(style='thin'))
         align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
         font_bold = Font(bold=True)
 
-        # --- 1. Header Row (Dates) ---
+        # --- 1. Header Row (เหมือนเดิม) ---
         sorted_dates = sorted(schedule.index)
-        
         ws.cell(row=1, column=1, value="Shift / Date").fill = header_fill
         ws.cell(row=1, column=1).border = border
         ws.cell(row=1, column=1).font = font_bold
@@ -877,42 +877,44 @@ class PharmacistScheduler:
             cell.alignment = align_center
             cell.border = border
             cell.font = font_bold
-            
-            if self.is_holiday(date):
-                cell.fill = holiday_fill
-            elif date.weekday() >= 5:
-                cell.fill = weekend_fill
-            else:
-                cell.fill = header_fill
+            if self.is_holiday(date): cell.fill = holiday_fill
+            elif date.weekday() >= 5: cell.fill = weekend_fill
+            else: cell.fill = header_fill
 
         # --- 2. Data Rows (Shift x Date) ---
         current_row = 2
         for shift_code in self.shift_types:
             shift_info = self.shift_types[shift_code]
             
-            # ดึงเวลาและฟอร์แมตให้เหลือแค่ HH:MM
+            # Format Time
             def format_time_short(t):
-                if isinstance(t, time):
-                    return t.strftime('%H:%M')
-                return str(t)[:5] # กรณีเป็น string ให้ตัดเอา 5 ตัวแรก
+                if isinstance(t, time): return t.strftime('%H:%M')
+                return str(t)[:5]
 
             st_time = format_time_short(shift_info['start_time'])
             en_time = format_time_short(shift_info['end_time'])
-            
-            # ใช้ Description เป็นชื่อหลักตามที่ต้องการ
             display_name = f"{shift_info['description']}\n({st_time} - {en_time})"
             
             cell_shift = ws.cell(row=current_row, column=1, value=display_name)
-            cell_shift.font = Font(bold=True, size=9)
             cell_shift.border = border
-            cell_shift.alignment = Alignment(vertical='center', horizontal='left', wrap_text=True) # ปรับเป็นชิดซ้ายให้เหมือนหัวตาราง
+            cell_shift.alignment = Alignment(vertical='center', horizontal='left', wrap_text=True)
 
-            # ... (ส่วนตรรกะการเว้นว่างชื่อเพื่อให้เซ็นชื่อยังคงเหมือนเดิม)
+            # --- ส่วนที่เพิ่ม: กำหนดสีตามแผนก (Prefix) ---
+            prefix = next((p for p in summary_styles['fills'] if shift_code.startswith(p)), None)
+            if prefix:
+                cell_shift.fill = summary_styles['fills'][prefix]
+                # ใช้สีฟอนต์สีขาวถ้าเป็นแผนก O400F1 หรือ ARI เพื่อให้มองเห็นชัด
+                if prefix in ['O400F1', 'ARI']:
+                    cell_shift.font = Font(bold=True, size=9, color="FFFFFF")
+                else:
+                    cell_shift.font = Font(bold=True, size=9, color="000000")
+            else:
+                cell_shift.font = Font(bold=True, size=9)
 
+            # Data Cells (เว้นว่างไว้เซ็นชื่อ)
             for col_idx, date in enumerate(sorted_dates, 2):
                 cell = ws.cell(row=current_row, column=col_idx)
                 assigned_value = schedule.loc[date, shift_code]
-                
                 cell.border = border
                 cell.alignment = align_center
 
@@ -920,17 +922,14 @@ class PharmacistScheduler:
                     cell.value = "X"
                     cell.fill = no_shift_fill
                 else:
-                    # ปล่อยให้ว่างไว้สำหรับเซ็นชื่อ (ไม่ใส่ชื่อเภสัชกรลงไป)
                     cell.value = "" 
                     if assigned_value in ['UNFILLED', 'UNASSIGNED']:
                         cell.fill = PatternFill(start_color='FFFFFF00', fill_type='solid')
             
-            ws.row_dimensions[current_row].height = 35 # เพิ่มความสูงเพื่อให้เซ็นง่ายขึ้น
+            ws.row_dimensions[current_row].height = 40
             current_row += 1
 
-        ws.column_dimensions['A'].width = 15
-        for col in range(2, len(sorted_dates) + 2):
-            ws.column_dimensions[get_column_letter(col)].width = 15
+        ws.column_dimensions['A'].width = 35 # ปรับความกว้างรองรับ Description
             
     def export_to_excel(self, schedule, unfilled_info):
         wb = Workbook()
@@ -1978,82 +1977,74 @@ class AssistantScheduler:
     def create_signin_sheet(self, wb, schedule):
         ws = wb.create_sheet("Sign-in Sheet")
         
-        # --- Styles ---
-        header_fill = PatternFill(start_color='FFD3D3D3', fill_type='solid') 
-        no_shift_fill = PatternFill(start_color='FF808080', fill_type='solid') 
-        weekend_fill = PatternFill(start_color='FFFFE4E1', fill_type='solid')
-        holiday_fill = PatternFill(start_color='FFFFB6C1', fill_type='solid')
+        summary_styles = self._setup_daily_summary_styles()
+        header_fill = summary_styles['header_fill']
+        no_shift_fill = PatternFill(start_color='FF808080', fill_type='solid')
+        weekend_fill = summary_styles['weekend_fill']
+        holiday_fill = summary_styles['holiday_fill']
         
         border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                         top=Side(style='thin'), bottom=Side(style='thin'))
         align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        font_bold = Font(bold=True)
 
-        # --- 1. Header Row (Dates) ---
         sorted_dates = sorted(schedule.index)
-        
         ws.cell(row=1, column=1, value="Shift / Date").fill = header_fill
         ws.cell(row=1, column=1).border = border
-        ws.cell(row=1, column=1).font = font_bold
+        ws.cell(row=1, column=1).font = Font(bold=True)
 
         for col_idx, date in enumerate(sorted_dates, 2):
             cell = ws.cell(row=1, column=col_idx, value=date.strftime('%d/%m'))
             cell.alignment = align_center
             cell.border = border
-            cell.font = font_bold
-            
-            if self.is_holiday(date):
-                cell.fill = holiday_fill
-            elif date.weekday() >= 5:
-                cell.fill = weekend_fill
-            else:
-                cell.fill = header_fill
+            cell.font = Font(bold=True)
+            if self.is_holiday(date): cell.fill = holiday_fill
+            elif date.weekday() >= 5: cell.fill = weekend_fill
+            else: cell.fill = header_fill
 
-        # --- 2. Data Rows (Shift x Date) ---
         current_row = 2
         for shift_code in self.shift_types:
             shift_info = self.shift_types[shift_code]
             
             def format_time_short(t):
-                if isinstance(t, time):
-                    return t.strftime('%H:%M')
+                if isinstance(t, time): return t.strftime('%H:%M')
                 return str(t)[:5]
 
             st_time = format_time_short(shift_info['start_time'])
             en_time = format_time_short(shift_info['end_time'])
-            
-            # เปลี่ยนจาก shift_code เป็น description
             display_name = f"{shift_info['description']}\n({st_time} - {en_time})"
             
             cell_shift = ws.cell(row=current_row, column=1, value=display_name)
-            cell_shift.font = Font(bold=True, size=9)
             cell_shift.border = border
             cell_shift.alignment = Alignment(vertical='center', horizontal='left', wrap_text=True)
 
-            # ... (ส่วนตรรกะการเว้นว่างชื่อเพื่อให้เซ็นชื่อยังคงเหมือนเดิม)
+            # กำหนดสีตาม Prefix แผนก
+            prefix = next((p for p in summary_styles['fills'] if shift_code.startswith(p)), None)
+            if prefix:
+                cell_shift.fill = summary_styles['fills'][prefix]
+                if prefix in ['O400F1', 'ARI']:
+                    cell_shift.font = Font(bold=True, size=9, color="FFFFFF")
+                else:
+                    cell_shift.font = Font(bold=True, size=9, color="000000")
+            else:
+                cell_shift.font = Font(bold=True, size=9)
 
             for col_idx, date in enumerate(sorted_dates, 2):
                 cell = ws.cell(row=current_row, column=col_idx)
                 assigned_value = schedule.loc[date, shift_code]
-                
                 cell.border = border
                 cell.alignment = align_center
-
                 if assigned_value == 'NO SHIFT':
                     cell.value = "X"
                     cell.fill = no_shift_fill
                 else:
-                    # ปล่อยให้ว่างไว้สำหรับเซ็นชื่อ (ไม่ใส่ชื่อเภสัชกรลงไป)
-                    cell.value = "" 
-                    if assigned_value in ['UNFILLED', 'UNASSIGNED']:
+                    cell.value = ""
+                    if assigned_value == 'UNFILLED':
                         cell.fill = PatternFill(start_color='FFFFFF00', fill_type='solid')
             
-            ws.row_dimensions[current_row].height = 35 # เพิ่มความสูงเพื่อให้เซ็นง่ายขึ้น
+            ws.row_dimensions[current_row].height = 40
             current_row += 1
 
-        ws.column_dimensions['A'].width = 15
-        for col in range(2, len(sorted_dates) + 2):
-            ws.column_dimensions[get_column_letter(col)].width = 15
+        ws.column_dimensions['A'].width = 35
 
     def create_main_schedule_sheet(self, ws, schedule):
         header_fill, weekend_fill, holiday_fill, unfilled_fill, no_shift_fill = \
