@@ -51,18 +51,33 @@ def process_dataframe(df, file_type):
 
 # --- 2. ฟังก์ชันเริ่มระบบ Automation (Selenium) ---
 def run_automation(dataframe, user, password):
-    # Setup Chrome Driver อัตโนมัติ (ไม่ต้องโหลดไฟล์เอง)
+    # Setup Chrome Driver สำหรับ Linux/Cloud
     try:
-        service = Service(ChromeDriverManager().install())
         options = webdriver.ChromeOptions()
-        # options.add_argument("--headless") # เปิดบรรทัดนี้ถ้าไม่อยากให้เด้งหน้าต่าง Chrome ขึ้นมา
+        
+        # --- SETTINGS สำหรับรันบน Server (สำคัญมาก) ---
+        options.add_argument("--headless")  # ห้ามเปิดหน้าต่าง GUI
+        options.add_argument("--no-sandbox") # จำเป็นสำหรับ Linux root user
+        options.add_argument("--disable-dev-shm-usage") # แก้ปัญหา mem น้อยใน container
+        options.add_argument("--disable-gpu")
+        
+        # ระบุตำแหน่งของ Browser ที่ติดตั้งผ่าน packages.txt
+        options.binary_location = "/usr/bin/chromium"
+
+        # ใช้ Service ชี้ไปที่ ChromeDriver ของระบบ (ติดตั้งผ่าน packages.txt)
+        # ปกติจะอยู่ที่ /usr/bin/chromedriver
+        service = Service("/usr/bin/chromedriver")
+        
         driver = webdriver.Chrome(service=service, options=options)
-        wait = WebDriverWait(driver, 10) # รอสูงสุด 10 วินาทีในแต่ละขั้นตอน
+        wait = WebDriverWait(driver, 10)
+        
     except Exception as e:
         st.error(f"ไม่สามารถเปิด Chrome ได้: {e}")
+        # เพิ่มคำแนะนำถ้าหาไฟล์ไม่เจอ
+        st.info("คำแนะนำ: ตรวจสอบว่ามีไฟล์ packages.txt ที่ระบุ 'chromium' และ 'chromium-driver' หรือไม่")
         return
 
-    st.info("กำลังเปิด Browser...")
+    st.info("กำลังเปิด Browser (Headless Mode)...")
     
     # Progress Bar
     progress_bar = st.progress(0)
