@@ -11,3 +11,4 @@ PdfMerger
 PyPDF2
 qrcode[pil]
 selenium
+webdriver_manager.chrome
