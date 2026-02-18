@@ -10,13 +10,13 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
+# ตั้งค่าหน้าเว็บ Streamlit
+st.set_page_config(page_title="Auto Dispense V7", page_icon="💊", layout="wide")
+
 # --- 1. ฟังก์ชันเตรียมข้อมูล (Data Processing) ---
 def process_dataframe(df, file_type):
-    """
-    ฟังก์ชันสำหรับคลีนข้อมูลตาม Logic เดิมของผู้ใช้
-    """
     try:
-        # Filter ตามเงื่อนไขเดิม
+        # กรองข้อมูลตามเงื่อนไข (Clean Data)
         if 'Flag Issue' in df.columns:
             df = df[df['Flag Issue'] != 'X']
         if 'M7 Log Exist' in df.columns:
@@ -24,7 +24,6 @@ def process_dataframe(df, file_type):
         
         processed_data = pd.DataFrame()
 
-        # สร้าง Column Barcode ตาม Logic เดิม
         if file_type == "OPD":
             # Logic: 'O' + | + VN (4 digit) + | + Order Number
             vn_str = df['VN Number'].astype(str).str.zfill(4)
@@ -43,188 +42,187 @@ def process_dataframe(df, file_type):
             processed_data['date'] = df['Order Date'].astype(str)
             processed_data['location'] = df['Storage location']
             
+        # คืนค่าข้อมูลที่ตัดตัวซ้ำออกแล้ว
         return processed_data.drop_duplicates()
 
     except Exception as e:
-        st.error(f"Error processing {file_type} data: {e}")
+        st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์ {file_type}: {e}")
         return pd.DataFrame()
 
 # --- 2. ฟังก์ชันเริ่มระบบ Automation (Selenium) ---
-def run_automation(dataframe, user, password):
-    # Setup Chrome Driver สำหรับ Linux/Cloud
+def run_automation(dataframe, user, password, show_browser):
+    driver = None
     try:
+        # Setup Chrome Driver
+        service = Service(ChromeDriverManager().install())
         options = webdriver.ChromeOptions()
         
-        # --- SETTINGS สำหรับรันบน Server (สำคัญมาก) ---
-        options.add_argument("--headless")  # ห้ามเปิดหน้าต่าง GUI
-        options.add_argument("--no-sandbox") # จำเป็นสำหรับ Linux root user
-        options.add_argument("--disable-dev-shm-usage") # แก้ปัญหา mem น้อยใน container
-        options.add_argument("--disable-gpu")
+        # เลือกโหมดแสดงผล Browser (ถ้าไม่ติ๊ก Show Browser จะรันแบบ Headless)
+        if not show_browser:
+            options.add_argument("--headless")
+            options.add_argument("--disable-gpu")
         
-        # ระบุตำแหน่งของ Browser ที่ติดตั้งผ่าน packages.txt
-        options.binary_location = "/usr/bin/chromium"
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--start-maximized")
 
-        # ใช้ Service ชี้ไปที่ ChromeDriver ของระบบ (ติดตั้งผ่าน packages.txt)
-        # ปกติจะอยู่ที่ /usr/bin/chromedriver
-        service = Service("/usr/bin/chromedriver")
-        
+        st.info("กำลังเปิด Google Chrome...")
         driver = webdriver.Chrome(service=service, options=options)
-        wait = WebDriverWait(driver, 10)
+        wait = WebDriverWait(driver, 15)  # รอสูงสุด 15 วินาที
+
+        # ---------------------------------------------------------
+        # เริ่มขั้นตอนการทำงานกับ SAP
+        # ---------------------------------------------------------
         
-    except Exception as e:
-        st.error(f"ไม่สามารถเปิด Chrome ได้: {e}")
-        # เพิ่มคำแนะนำถ้าหาไฟล์ไม่เจอ
-        st.info("คำแนะนำ: ตรวจสอบว่ามีไฟล์ packages.txt ที่ระบุ 'chromium' และ 'chromium-driver' หรือไม่")
-        return
+        # 1. เข้าสู่เว็บไซต์ (Login)
+        target_url = 'http://172.16.61.11:8000/sap/bc/gui/sap/its/zismmhh0010?saml2=disabled'
+        st.write(f"กำลังเชื่อมต่อ: {target_url}")
+        driver.get(target_url)
 
-    st.info("กำลังเปิด Browser (Headless Mode)...")
-    
-    # Progress Bar
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    try:
-        # 1. Login
-        driver.get('http://172.16.61.11:8000/sap/bc/gui/sap/its/zismmhh0010?saml2=disabled')
+        # รอช่อง User/Pass และ Login
+        wait.until(EC.presence_of_element_located((By.XPATH, '//input[contains(@name, "sap-user")]'))).send_keys(user)
+        pwd_box = driver.find_element(By.XPATH, '//input[contains(@name, "sap-password")]')
+        pwd_box.send_keys(password)
+        pwd_box.send_keys(Keys.ENTER)
+
+        # 2. นำทางเมนู (Menu Navigation)
+        st.write("กำลังเข้าสู่เมนู...")
+        wait.until(EC.presence_of_element_located((By.NAME, 'm4[1]'))).send_keys(Keys.ENTER) # เมนู 1
+        wait.until(EC.presence_of_element_located((By.NAME, 'm3[1]'))).send_keys(Keys.ENTER) # เมนู 2
+
+        # 3. เริ่มวนลูปข้อมูล (Loop Data)
+        st.divider()
+        st.subheader("สถานะการทำงาน")
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        log_area = st.empty()
         
-        # รอให้ช่อง Username โผล่มาแล้วค่อยพิมพ์ (แทน time.sleep)
-        user_field = wait.until(EC.presence_of_element_located((By.XPATH, '//input[contains(@name, "sap-user")]')))
-        pass_field = driver.find_element(By.XPATH, '//input[contains(@name, "sap-password")]')
-        
-        user_field.send_keys(user)
-        pass_field.send_keys(password)
-        pass_field.send_keys(Keys.ENTER) # Submit
-
-        # 2. Navigate Menu
-        # รอหน้าโหลด แล้วกด m4[1]
-        m4_input = wait.until(EC.presence_of_element_located((By.NAME, 'm4[1]')))
-        m4_input.send_keys(Keys.ENTER)
-
-        # รอหน้าโหลด แล้วกด m3[1]
-        m3_input = wait.until(EC.presence_of_element_located((By.NAME, 'm3[1]')))
-        m3_input.send_keys(Keys.ENTER)
-
-        # 3. Loop Data
         total_rows = len(dataframe)
-        
-        # หา Element ที่เป็นช่อง Input ข้อมูล (ปรับ Xpath ให้แม่นยำขึ้นจากโค้ดเดิม)
-        # หมายเหตุ: Xpath ของ SAP ITS Mobile มักจะเปลี่ยนถ้าหน้าจอเปลี่ยน 
-        # แนะนำให้ใช้ ID หรือ Name ถ้าหาเจอ แต่ถ้าไม่มีใช้ Xpath เดิมที่เคยใช้ได้
-        
-        # รอให้หน้าจอ input พร้อม
+        success_count = 0
+        fail_count = 0
+
+        # รอหน้าฟอร์มพร้อมก่อนเริ่มลูป
         wait.until(EC.presence_of_element_located((By.XPATH, '//*[@id="mobileform"]/div[2]/input[6]')))
 
         for index, row in dataframe.iterrows():
             try:
-                # Update progress
-                status_text.text(f"Processing row {index + 1}/{total_rows}: {row['barcode']}")
+                current_barcode = row['barcode']
+                status_text.text(f"กำลังทำรายการที่ {index + 1}/{total_rows}: {current_barcode}")
                 progress_bar.progress((index + 1) / total_rows)
 
-                # เตรียมข้อมูลวันที่ (Format เดิม: 0:4 + 5:7 + 8:10 -> YYYYMMDD)
+                # แปลงวันที่
                 raw_date = str(row['date'])
                 if len(raw_date) >= 10:
-                    formatted_date = raw_date[0:4] + raw_date[5:7] + raw_date[8:10]
+                    fmt_date = raw_date[0:4] + raw_date[5:7] + raw_date[8:10]
                 else:
-                    formatted_date = raw_date # Fallback
+                    fmt_date = raw_date
                 
-                input_str = f"{row['barcode']}|{formatted_date}"
-                
-                # --- Fill Form ---
-                # ช่อง Barcode/Data
-                field_barcode = driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[6]')
-                field_barcode.clear()
-                field_barcode.send_keys(input_str)
-                
+                input_str = f"{current_barcode}|{fmt_date}"
+
+                # กรอกข้อมูล (Fill Form)
+                # ช่อง Barcode
+                inp_barcode = driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[6]')
+                inp_barcode.clear()
+                inp_barcode.send_keys(input_str)
+
                 # ช่อง Location
-                field_loc = driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[11]')
-                field_loc.clear()
-                field_loc.send_keys(str(row['location']))
-                
-                # กด Submit (Input 3 ในโค้ดเดิม)
-                btn_submit = driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[3]')
-                btn_submit.click()
-                
-                # --- Handle Popups / Errors ---
+                inp_loc = driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[11]')
+                inp_loc.clear()
+                inp_loc.send_keys(str(row['location']))
+
+                # กดปุ่มยืนยัน (Submit)
+                driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[3]').click()
+
+                # จัดการ Popup (ถ้ามี)
                 try:
-                    # เช็คว่ามี Popup ให้กดเลือก option หรือไม่
-                    popup_opt = WebDriverWait(driver, 1).until(
+                    popup = WebDriverWait(driver, 1).until(
                         EC.element_to_be_clickable((By.NAME, "spop-option1[1]"))
                     )
-                    popup_opt.click()
+                    popup.click()
                 except TimeoutException:
-                    pass # ไม่มี Popup ก็ทำต่อ
+                    pass # ไม่มี Popup
 
-                # เคลียร์ค่าเพื่อเตรียมรอบถัดไป (Logic เดิมมีการกด Tab แต่เราใช้ clear() ปลอดภัยกว่า)
+                # เคลียร์ค่าเตรียมรอบถัดไป
                 try:
-                    field_barcode = driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[6]')
-                    field_barcode.clear()
+                    driver.find_element(By.XPATH, '//*[@id="mobileform"]/div[2]/input[6]').clear()
                 except:
                     pass
+                
+                success_count += 1
 
-            except Exception as row_e:
-                st.warning(f"Row {index} failed: {row_e}")
-                # พยายามกลับไปหน้าเดิมหรือเคลียร์หน้าจอถ้าจำเป็น
+            except Exception as e:
+                fail_count += 1
+                st.warning(f"Error รายการที่ {index + 1}: {e}")
+                # พยายาม Reset กลับมาหน้าเดิมถ้าพัง
                 continue
-
-        st.success("ทำงานเสร็จสิ้น!")
-        time.sleep(5) # เปิดค้างไว้แป๊บนึงก่อนปิด
-        driver.quit()
+        
+        progress_bar.progress(100)
+        st.success(f"✅ เสร็จสิ้น! สำเร็จ: {success_count} | ผิดพลาด: {fail_count}")
+        st.balloons()
 
     except Exception as e:
-        st.error(f"เกิดข้อผิดพลาดระหว่างรัน Automation: {e}")
-        if 'driver' in locals():
+        st.error(f"เกิดข้อผิดพลาดร้ายแรง (Critical Error): {e}")
+        st.error("คำแนะนำ: โปรดตรวจสอบว่า Username/Password ถูกต้อง และเครื่องคอมพิวเตอร์เชื่อมต่อเครือข่ายโรงพยาบาลอยู่")
+    
+    finally:
+        if driver:
+            time.sleep(5) # รอให้ดูผลลัพธ์แป๊บนึง
             driver.quit()
+            st.info("ปิด Browser แล้ว")
 
 # --- 3. ส่วนหน้าจอ UI (Streamlit Layout) ---
-st.set_page_config(page_title="Auto Dispense V7", page_icon="💊")
-
-st.title("💊 Auto Dispense V7 (Web Version)")
-st.markdown("โปรแกรมช่วยคีย์ข้อมูล SAP อัตโนมัติ")
+st.title("💊 Auto Dispense V7")
+st.markdown("ระบบช่วยคีย์ข้อมูล SAP อัตโนมัติ (รันบน Local Network)")
 
 with st.sidebar:
-    st.header("การตั้งค่า")
-    user_in = st.text_input("Username", placeholder="SAP Username")
-    pass_in = st.text_input("Password", type="password")
+    st.header("🔑 เข้าสู่ระบบ SAP")
+    user_in = st.text_input("Username", placeholder="กรอก Username")
+    pass_in = st.text_input("Password", type="password", placeholder="กรอก Password")
     
     st.divider()
-    mode = st.radio("เลือกโหมดการทำงาน", ["OPD", "IPD", "BOTH"])
+    st.header("⚙️ ตั้งค่า")
+    mode = st.radio("เลือกโหมดข้อมูล", ["OPD", "IPD", "BOTH"])
+    show_browser = st.checkbox("แสดงหน้าจอ Chrome ขณะทำงาน", value=True)
 
-# Main Area
+# Main Content
 col1, col2 = st.columns(2)
 opd_df = pd.DataFrame()
 ipd_df = pd.DataFrame()
 
-# File Uploader
+# ส่วนอัปโหลดไฟล์
 if mode in ["OPD", "BOTH"]:
     with col1:
-        st.subheader("ไฟล์ OPD")
-        opd_file = st.file_uploader("Upload OPD.xlsx", type=['xlsx'])
+        st.subheader("📄 ไฟล์ OPD")
+        opd_file = st.file_uploader("ลากไฟล์ OPD.xlsx มาวางที่นี่", type=['xlsx'])
         if opd_file:
             raw_opd = pd.read_excel(opd_file)
             opd_df = process_dataframe(raw_opd, "OPD")
-            st.write(f"พบข้อมูล {len(opd_df)} รายการ")
+            st.success(f"OPD: {len(opd_df)} รายการ")
 
 if mode in ["IPD", "BOTH"]:
     with col2:
-        st.subheader("ไฟล์ IPD")
-        ipd_file = st.file_uploader("Upload IPD.xlsx", type=['xlsx'])
+        st.subheader("📄 ไฟล์ IPD")
+        ipd_file = st.file_uploader("ลากไฟล์ IPD.xlsx มาวางที่นี่", type=['xlsx'])
         if ipd_file:
             raw_ipd = pd.read_excel(ipd_file)
             ipd_df = process_dataframe(raw_ipd, "IPD")
-            st.write(f"พบข้อมูล {len(ipd_df)} รายการ")
+            st.success(f"IPD: {len(ipd_df)} รายการ")
 
-# รวมข้อมูล
+# รวมข้อมูลเพื่อเตรียมรัน
 final_df = pd.concat([opd_df, ipd_df], ignore_index=True)
 
 if not final_df.empty:
     st.divider()
-    st.subheader("ตัวอย่างข้อมูลที่จะรัน")
-    st.dataframe(final_df.head())
+    st.subheader(f"📊 พร้อมทำงาน: ทั้งหมด {len(final_df)} รายการ")
+    with st.expander("ดูตัวอย่างข้อมูล (คลิกเพื่อขยาย)"):
+        st.dataframe(final_df.head(10))
     
-    if st.button("🚀 เริ่มทำงาน (Run)", type="primary"):
+    start_btn = st.button("🚀 เริ่มทำงาน (Start Automation)", type="primary", use_container_width=True)
+    
+    if start_btn:
         if not user_in or not pass_in:
-            st.warning("กรุณากรอก Username และ Password")
+            st.warning("⚠️ กรุณากรอก Username และ Password ก่อนเริ่มทำงาน")
         else:
-            run_automation(final_df, user_in, pass_in)
+            run_automation(final_df, user_in, pass_in, show_browser)
 else:
-    st.info("กรุณาอัปโหลดไฟล์ข้อมูลเพื่อเริ่มทำงาน")
+    st.info("👆 กรุณาอัปโหลดไฟล์ Excel เพื่อเริ่มต้น")
