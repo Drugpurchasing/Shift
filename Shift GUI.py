@@ -226,6 +226,26 @@ class PharmacistScheduler:
         if all_ok:
             self.logger("✅ จำนวนพนักงานเพียงพอสำหรับทุกวัน")
         return not all_ok
+    
+    def _calculate_preference_multipliers(self):
+        if not self.historical_scores:
+            for pharmacist in self.pharmacists:
+                self.preference_multipliers[pharmacist] = 1.0
+            return
+        min_score = min(self.historical_scores.values())
+        max_score = max(self.historical_scores.values())
+        if min_score == max_score:
+            for pharmacist in self.pharmacists:
+                self.preference_multipliers[pharmacist] = 1.0
+            return
+        for pharmacist, score in self.historical_scores.items():
+            normalized_score = (score - min_score) / (max_score - min_score)
+            min_multiplier = 0.7
+            self.preference_multipliers[pharmacist] = min_multiplier + (1 - min_multiplier) * normalized_score
+        for pharmacist in self.pharmacists:
+            if pharmacist not in self.preference_multipliers:
+                min_multiplier = 0.7
+                self.preference_multipliers[pharmacist] = min_multiplier
 
     def optimize_schedule(self, year, month, iterations, progress_bar):
         self._pre_check_staffing_levels(year, month)
