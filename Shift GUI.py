@@ -228,70 +228,67 @@ class PharmacistScheduler:
         return not all_ok
 
     def optimize_schedule(self, year, month, iterations, progress_bar):
-        best_schedule = None
-        best_metrics = {'unfilled_problem_shifts': float('inf'), 'hour_imbalance_penalty': float('inf'),
-                        'night_variance': float('inf'), 'preference_score': float('inf')}
-        best_unfilled_info = {}
         self._pre_check_staffing_levels(year, month)
         self.logger(f"กำลังเริ่มการคำนวณ {iterations} รอบ...")
+        
+        all_results = []
         for i in range(iterations):
-            current_schedule, unfilled_info = self.generate_monthly_schedule_shuffled(year, month, progress_bar,
-                                                                                      iteration_num=i + 1)
-            if unfilled_info['other_days']: continue
+            current_schedule, unfilled_info = self.generate_monthly_schedule_shuffled(year, month, progress_bar, iteration_num=i + 1)
             metrics = self.calculate_schedule_metrics(current_schedule, year, month)
-            metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days'])
-            if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
-                best_schedule = current_schedule.copy()
-                best_metrics = metrics.copy()
-                best_unfilled_info = unfilled_info.copy()
-                self.logger(f"รอบที่ {i + 1}: ✅ พบตารางที่ดีกว่าเดิม!")
-        if best_schedule is not None:
-            self.logger("\n🎉 คำนวณเสร็จสิ้น! พบตารางที่ดีที่สุดแล้ว")
+            
+            # บังคับนับเวรว่างทั้งหมดเพื่อใช้เป็นเกณฑ์จัดอันดับสูงสุด
+            metrics['total_unfilled'] = len(unfilled_info['problem_days']) + len(unfilled_info['other_days'])
+            
+            all_results.append({
+                'schedule': current_schedule,
+                'unfilled_info': unfilled_info,
+                'metrics': metrics
+            })
+
+        # จัดอันดับ: 1.เวรว่างน้อยสุด 2.ชั่วโมงสมดุล 3.คะแนนความชอบ 4.คะแนนรวม
+        def sort_key(res):
+            m = res['metrics']
+            fallback_score = m.get('preference_score', 0) + (800.0 * m.get('night_variance', 0)) + (1000.0 * m.get('weekend_off_variance', 0))
+            return (m['total_unfilled'], m['hour_imbalance_penalty'], m['preference_score_diff'], fallback_score)
+
+        all_results.sort(key=sort_key)
+        top_schedules = all_results[:3] # ดึงแค่ 3 อันดับแรก
+
+        if top_schedules:
+            self.logger(f"\n🎉 คำนวณเสร็จสิ้น! แสดงผลตารางที่ดีที่สุด {len(top_schedules)} รูปแบบ")
         else:
-            self.logger("\n❌ ไม่สามารถหาตารางที่เหมาะสมได้")
-        return best_schedule, best_unfilled_info
+            self.logger("\n❌ ไม่สามารถหาตารางได้เลย")
+            
+        return top_schedules
 
     def optimize_schedule_for_dates(self, dates_to_schedule, iterations, progress_bar):
-        best_schedule = None
-        best_metrics = {'unfilled_problem_shifts': float('inf'), 'preference_score': float('inf')}
-        best_unfilled_info = {}
         self._pre_check_staffing_for_dates(dates_to_schedule)
         self.logger(f"\nกำลังเริ่มการคำนวณ {iterations} รอบ สำหรับวันที่เลือก...")
+        
+        all_results = []
         for i in range(iterations):
-            current_schedule, unfilled_info = self.generate_schedule_for_dates(dates_to_schedule, progress_bar,
-                                                                               iteration_num=i + 1)
+            current_schedule, unfilled_info = self.generate_schedule_for_dates(dates_to_schedule, progress_bar, iteration_num=i + 1)
             metrics = self.calculate_metrics_for_schedule(current_schedule)
-            metrics['unfilled_problem_shifts'] = len(unfilled_info['problem_days']) + len(unfilled_info['other_days'])
-            if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
-                best_schedule = current_schedule.copy()
-                best_metrics = metrics.copy()
-                best_unfilled_info = unfilled_info.copy()
-                self.logger(f"รอบที่ {i + 1}: ✅ พบตารางที่ดีกว่าเดิม!")
-        if best_schedule is not None:
-            self.logger("\n🎉 คำนวณเสร็จสิ้น! พบตารางที่ดีที่สุดแล้ว")
-        else:
-            self.logger("\n❌ ไม่สามารถหาตารางที่เหมาะสมได้")
-        return best_schedule, best_unfilled_info
+            
+            metrics['total_unfilled'] = len(unfilled_info['problem_days']) + len(unfilled_info['other_days'])
+            
+            all_results.append({
+                'schedule': current_schedule,
+                'unfilled_info': unfilled_info,
+                'metrics': metrics
+            })
 
-    def _calculate_preference_multipliers(self):
-        if not self.historical_scores:
-            for pharmacist in self.pharmacists:
-                self.preference_multipliers[pharmacist] = 1.0
-            return
-        min_score = min(self.historical_scores.values())
-        max_score = max(self.historical_scores.values())
-        if min_score == max_score:
-            for pharmacist in self.pharmacists:
-                self.preference_multipliers[pharmacist] = 1.0
-            return
-        for pharmacist, score in self.historical_scores.items():
-            normalized_score = (score - min_score) / (max_score - min_score)
-            min_multiplier = 0.7
-            self.preference_multipliers[pharmacist] = min_multiplier + (1 - min_multiplier) * normalized_score
-        for pharmacist in self.pharmacists:
-            if pharmacist not in self.preference_multipliers:
-                min_multiplier = 0.7
-                self.preference_multipliers[pharmacist] = min_multiplier
+        def sort_key(res):
+            m = res['metrics']
+            fallback_score = m.get('preference_score', 0) + (800.0 * m.get('night_variance', 0)) + (1000.0 * m.get('weekend_off_variance', 0))
+            return (m['total_unfilled'], m['hour_imbalance_penalty'], m['preference_score_diff'], fallback_score)
+
+        all_results.sort(key=sort_key)
+        top_schedules = all_results[:3]
+
+        if top_schedules:
+            self.logger(f"\n🎉 คำนวณเสร็จสิ้น! แสดงผลตารางที่ดีที่สุด {len(top_schedules)} รูปแบบ")
+        return top_schedules
 
     def convert_time_to_minutes(self, time_input):
         if isinstance(time_input, str):
@@ -1703,31 +1700,47 @@ class AssistantScheduler:
         best_score = sum(weights[k] * best_metrics.get(k, 0) for k in weights)
         
         return current_score < best_score
+    
     def optimize_schedule(self, dates, iterations=10):
         problematic_dates = self._pre_schedule_staffing_check(dates)
         for name in self.assistants:
             self.assistants[name]['initial_department_counts'] = self.assistants[name]['department_counts'].copy()
             self.assistants[name]['initial_night_count'] = self.assistants[name]['night_shift_count']
             self.assistants[name]['initial_hours'] = self.assistants[name]['total_hours']
-            self.assistants[name]['initial_specific_shift_counts'] = self.assistants[name][
-                'specific_shift_counts'].copy()
-        best_schedule, best_metrics = None, {'hour_diff': float('inf'), 'night_variance': float('inf'),
-                                             'department_variance': float('inf')}
+            self.assistants[name]['initial_specific_shift_counts'] = self.assistants[name]['specific_shift_counts'].copy()
+        
         self.logger(f"กำลังเริ่มการคำนวณ {iterations} รอบ...")
+        all_results = []
+        
         for i in range(iterations):
             self._update_progress((i + 1) / iterations, f"กำลังคำนวณรอบที่ {i + 1}/{iterations}...")
-            self.logger(f"\n--- รอบที่ {i + 1}/{iterations} ---")
             current_schedule = self.generate_schedule(dates, problematic_dates, iteration_num=i + 1)
             metrics = self.calculate_schedule_metrics(current_schedule)
-            self.logger(
-                f"\nผลลัพธ์รอบที่ {i + 1} -> Hour Diff: {metrics['hour_diff']:.2f}, Night Var: {metrics['night_variance']:.2f}, Dept Var: {metrics['department_variance']:.2f}")
-            if best_schedule is None or self.is_schedule_better(metrics, best_metrics):
-                best_schedule, best_metrics = current_schedule.copy(), metrics.copy()
-                self.logger("✅ *** พบตารางที่ดีกว่าเดิม! ***")
-        self.logger("\n🎉 คำนวณเสร็จสิ้น! พบตารางที่ดีที่สุดแล้ว")
-        self.logger(
-            f"ผลลัพธ์สุดท้าย -> Hour Difference: {best_metrics['hour_diff']:.2f}, Night Variance: {best_metrics['night_variance']:.2f}, Dept Var: {best_metrics['department_variance']:.2f}")
-        return best_schedule
+            
+            # นับจำนวนเวรที่หาคนลงไม่ได้
+            metrics['total_unfilled'] = (current_schedule == 'UNFILLED').sum().sum()
+            
+            all_results.append({
+                'schedule': current_schedule,
+                'metrics': metrics,
+                'unfilled_info': None # ให้โครงสร้างข้อมูลตรงกับ Pharmacist
+            })
+
+        # จัดอันดับ: 1.เวรว่างน้อยสุด 2.ชั่วโมงสมดุล 3.คะแนนรวม(เวรดึก/แผนก)
+        def sort_key(res):
+            m = res['metrics']
+            fallback_score = (75.0 * m.get('night_variance', 0)) + (200.0 * m.get('department_variance', 0))
+            return (m['total_unfilled'], m.get('hour_diff', 0), fallback_score)
+
+        all_results.sort(key=sort_key)
+        top_schedules = all_results[:3]
+
+        if top_schedules:
+            self.logger(f"\n🎉 คำนวณเสร็จสิ้น! แสดงผลตารางที่ดีที่สุด {len(top_schedules)} รูปแบบ")
+            best_m = top_schedules[0]['metrics']
+            self.logger(f"ผลลัพธ์อันดับ 1 -> Unfilled: {best_m['total_unfilled']}, Hour Diff: {best_m.get('hour_diff', 0):.2f}, Night Var: {best_m.get('night_variance', 0):.2f}")
+            
+        return top_schedules
 
     def generate_schedule(self, dates, problematic_dates, iteration_num=1):
         max_attempts = 250
@@ -2696,6 +2709,9 @@ if run_button:
         scheduler_instance = None  # To hold the final scheduler instance
 
         # --- Pharmacist Scheduler Logic ---
+        # --- ก่อนหน้านี้โค้ดเหมือนเดิม ---
+        
+        # --- Pharmacist Scheduler Logic ---
         if scheduler_type == "จัดเวรเภสัชกร":
             scheduler = PharmacistScheduler(excel_url, logger=user_friendly_logger, progress_bar=data_load_progress)
             scheduler_instance = scheduler
@@ -2705,19 +2721,14 @@ if run_button:
             with optimization_progress_placeholder.container():
                 opt_progress_bar = st.progress(0, text="กำลังเตรียมการคำนวณ...")
                 if mode == "จัดทั้งเดือน":
-                    best_schedule, best_unfilled_info = scheduler.optimize_schedule(year, month, iterations,
-                                                                                    opt_progress_bar)
+                    top_results = scheduler.optimize_schedule(year, month, iterations, opt_progress_bar)
                 else:
                     if not dates_to_schedule:
                         st.error("กรุณาเลือกช่วงวันที่ที่ถูกต้อง")
+                        top_results = []
                     else:
-                        best_schedule, best_unfilled_info = scheduler.optimize_schedule_for_dates(dates_to_schedule,
-                                                                                                  iterations,
-                                                                                                  opt_progress_bar)
-
+                        top_results = scheduler.optimize_schedule_for_dates(dates_to_schedule, iterations, opt_progress_bar)
             optimization_progress_placeholder.empty()
-            if best_schedule is not None:
-                excel_buffer = scheduler.export_to_excel(best_schedule, best_unfilled_info)
 
         # --- Assistant Scheduler Logic ---
         else:
@@ -2736,69 +2747,75 @@ if run_button:
                 else:
                     final_dates = pd.to_datetime(dates_to_schedule).sort_values()
 
+            top_results = []
             if len(final_dates) > 0:
                 optimization_progress_placeholder = st.empty()
                 with optimization_progress_placeholder.container():
                     opt_progress_bar = st.progress(0, text="กำลังเตรียมการคำนวณ...")
                     scheduler.progress_bar = opt_progress_bar
-                    best_schedule = scheduler.optimize_schedule(final_dates, iterations)
-
+                    top_results = scheduler.optimize_schedule(final_dates, iterations)
                 optimization_progress_placeholder.empty()
-                if best_schedule is not None:
-                    scheduler.suggest_negotiations_for_unfilled(best_schedule)
-                    excel_buffer = scheduler.export_to_excel(best_schedule)
 
         # --- Clear logs and display results ---
         log_container.empty()
         data_load_progress.empty()
 
-        if best_schedule is not None and excel_buffer is not None:
-            st.success("✅ จัดตารางเวรสำเร็จ!")
+        if top_results:
+            st.success(f"✅ จัดตารางเวรสำเร็จ! แสดงผลตารางที่ดีที่สุด {len(top_results)} รูปแบบ")
 
-            type_prefix = "Pharmacist" if scheduler_type == "จัดเวรเภสัชกร" else "Assistant"
-            if mode == "จัดทั้งเดือน":
-                output_filename = f"{type_prefix}_Schedule_{year}_{month:02d}.xlsx"
-            else:
-                date_str = dates_to_schedule[0].strftime('%Y%m%d')
-                output_filename = f"{type_prefix}_Schedule_Custom_{date_str}.xlsx"
+            for idx, result in enumerate(top_results):
+                sch = result['schedule']
+                metrics = result['metrics']
+                unf_info = result['unfilled_info']
+                
+                st.markdown(f"## 🏆 อันดับที่ {idx + 1}")
+                
+                # แสดง Metrics เปรียบเทียบ
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("เวรว่าง (Unfilled)", f"{metrics.get('total_unfilled', 0)} เวร")
+                if scheduler_type == "จัดเวรเภสัชกร":
+                    col2.metric("Hour Imbalance", f"{metrics.get('hour_imbalance_penalty', 0):.0f}")
+                    col3.metric("ความต่างความชอบ", f"{metrics.get('preference_score_diff', 0):.1f}%")
+                    col4.metric("Night Variance", f"{metrics.get('night_variance', 0):.2f}")
+                else:
+                    col2.metric("Hour Diff", f"{metrics.get('hour_diff', 0):.2f}")
+                    col3.metric("Night Variance", f"{metrics.get('night_variance', 0):.2f}")
+                    col4.metric("Dept Variance", f"{metrics.get('department_variance', 0):.2f}")
 
-            st.download_button(
-                label="📥 ดาวน์โหลดตารางเวรทั้งหมด (ไฟล์ Excel)",
-                data=excel_buffer,
-                file_name=output_filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+                # Export Excel
+                if scheduler_type == "จัดเวรเภสัชกร":
+                    excel_buffer = scheduler.export_to_excel(sch, unf_info)
+                else:
+                    scheduler.suggest_negotiations_for_unfilled(sch)
+                    excel_buffer = scheduler.export_to_excel(sch)
 
-            st.divider()
+                type_prefix = "Pharmacist" if scheduler_type == "จัดเวรเภสัชกร" else "Assistant"
+                date_str = f"{year}_{month:02d}" if mode == "จัดทั้งเดือน" else dates_to_schedule[0].strftime('%Y%m%d')
+                output_filename = f"{type_prefix}_Rank{idx+1}_{date_str}.xlsx"
 
-            # --- Display Styled HTML Summary directly on the page ---
-            st.header("🗓️ ตารางสรุปรายวัน (Daily Summary)")
-            if scheduler_type == "จัดเวรเภสัชกร":
-                html_summary = generate_pharmacist_html_summary(best_schedule, scheduler_instance)
-            else:
-                html_summary = generate_assistant_html_summary(best_schedule, scheduler_instance)
+                st.download_button(
+                    label=f"📥 ดาวน์โหลดไฟล์ Excel (อันดับ {idx + 1})",
+                    data=excel_buffer,
+                    file_name=output_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"dl_btn_{idx}"
+                )
 
-            st.markdown(html_summary, unsafe_allow_html=True)  # <-- This renders the HTML table
+                # HTML Summary
+                st.markdown("**ตารางสรุปรายวัน (Daily Summary)**")
+                if scheduler_type == "จัดเวรเภสัชกร":
+                    html_summary = generate_pharmacist_html_summary(sch, scheduler_instance)
+                else:
+                    html_summary = generate_assistant_html_summary(sch, scheduler_instance)
+                st.markdown(html_summary, unsafe_allow_html=True)
+                st.divider()
 
-            st.divider()
-
-            # --- Display Other Sheets in Expanders ---
-            st.header("📄 ตารางรูปแบบอื่นๆ (ที่มีในไฟล์ Excel)")
-            xls = pd.ExcelFile(excel_buffer)
-            sheet_names = xls.sheet_names
-            for sheet_name in sheet_names:
-                if sheet_name != 'Daily Summary':
-                    with st.expander(f"ดูตาราง: {sheet_name}"):
-                        df = pd.read_excel(xls, sheet_name=sheet_name)
-                        st.dataframe(df)
         elif run_button:
-            st.error("❌ ไม่สามารถสร้างตารางเวรได้ กรุณาตรวจสอบข้อจำกัดต่างๆ หรือลองเพิ่มจำนวนรอบการคำนวณ")
+            st.error("❌ ไม่สามารถสร้างตารางเวรได้ (ข้อมูลตั้งต้นอาจมีปัญหา กรุณาตรวจสอบ Google Sheet)")
 
     except Exception as e:
         st.error(f"เกิดข้อผิดพลาดที่ไม่คาดคิด: {e}")
-        st.error(
-            "อาจเกิดจากปัญหาการเชื่อมต่ออินเทอร์เน็ต, รูปแบบไฟล์ Google Sheet เปลี่ยนไป, หรือลิงก์ไม่ถูกต้อง กรุณาตรวจสอบและลองอีกครั้ง")
 
 
 
