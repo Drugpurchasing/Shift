@@ -47,7 +47,7 @@ class PharmacistScheduler:
             'I100-10', 'I100-12N', 'I400-12N', 'I400-10', 'O400ER-12N', 'O400ER-10'
         }
         self.holidays = {
-            'specific_dates': ['2026-04-06,2026-04-13,2026-04-14,2026-04-15']
+            'specific_dates': ['2026-04-06','2026-04-13','2026-04-14','2026-04-15']
         }
         for pharmacist in self.pharmacists:
             self.pharmacists[pharmacist]['shift_counts'] = {
@@ -1479,7 +1479,7 @@ class AssistantScheduler:
         self.special_notes = {}
         self.read_data_from_excel(excel_file_path)
         self.night_shifts = {'I100-16', 'I100-12N', 'I400-12N', 'I400-16', 'O400ER-12N', 'O400ER-16'}
-        self.holidays = {'specific_dates': ['2026-04-06, 2026-04-13 ,2026-04-14 ,2026-04-15']}
+        self.holidays = {'specific_dates': ['2026-04-06', '2026-04-13', '2026-04-14', '2026-04-15']}
 
     def _update_progress(self, value, text):
         if self.progress_bar:
