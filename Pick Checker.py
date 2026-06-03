@@ -95,7 +95,8 @@ def process_files(rate_files_list, data_files_list, mode):
             combined_OPD["Material"] = pd.to_numeric(combined_OPD["Material"], errors='coerce').fillna(0).astype(np.int64)
 
             merged_OPD = pd.merge(stacked_OPD, combined_OPD, on=["HN", "VN / AN", "Material"], how="left")
-            merged_OPD.fillna(0, inplace=True)
+            merged_OPD['จำนวน Pick'] = merged_OPD['จำนวน Pick'].fillna(0)
+            merged_OPD['Order Number'] = merged_OPD['Order Number'].fillna('')
             merged_OPD['ค้าง PickO'] = merged_OPD['จำนวน'] - merged_OPD['จำนวน Pick']
             merged_OPD = merged_OPD[merged_OPD['ค้าง PickO'] > 0]
             merged_OPD['วันที่จ่ายยา'] = pd.to_datetime(merged_OPD['วันที่จ่ายยา']).dt.strftime('%d/%m/%y')
@@ -125,7 +126,7 @@ def process_files(rate_files_list, data_files_list, mode):
             combined_IPD["Material"] = pd.to_numeric(combined_IPD["Material"], errors='coerce').fillna(0).astype(np.int64)
 
             merged_IPD = pd.merge(stacked_IPD, combined_IPD, on=["เลขที่เอกสาร", "VN / AN", "Material"], how="left")
-            merged_IPD.fillna(0, inplace=True)
+            merged_IPD['จำนวน Pick'] = merged_IPD['จำนวน Pick'].fillna(0)
             merged_IPD['ค้าง PickI'] = merged_IPD['จำนวน'] - merged_IPD['จำนวน Pick']
             merged_IPD = merged_IPD[merged_IPD['ค้าง PickI'] > 0]
             merged_IPD['วันที่จ่ายยา'] = pd.to_datetime(merged_IPD['วันที่จ่ายยา']).dt.strftime('%d/%m/%y')
