@@ -35,6 +35,10 @@ for excel_file in excel_files:
     df = df.dropna(subset=['โรงพยาบาลจุฬาภรณ์'])
     df = df.sort_values(by='โรงพยาบาลจุฬาภรณ์').reset_index()
     df.columns = range(10)
+    hn_values = df[4].astype(str).str.strip()
+    df = df[hn_values.str.fullmatch(r'\d{9,10}', na=False)].reset_index(drop=True)
+    if df.empty:
+        continue
     value_to_expand = df.at[0, 1]
     value_to_expand = value_to_expand.replace("รวม", "")
     df[1] = value_to_expand
